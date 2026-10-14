@@ -43,11 +43,20 @@ do_compare() {
   node --experimental-strip-types "$HG_SCRIPTS/sandbox-compare/run.ts" --out="$out" 2>&1 | tee "$out.log"
 }
 
+do_perf() {
+  log "running PERF baseline sampler"
+  local out
+  out="$REPORTS/runs/perf-$(date -u +%Y%m%dT%H%M%SZ)"
+  cd "$DSH"
+  node --experimental-strip-types "$HG_SCRIPTS/sandbox-compare/perf.ts" --runs="${PERF_RUNS:-30}" --out="$out" 2>&1 | tee "$out.log"
+}
+
 case "${1:-bash}" in
   gates)   do_gates ;;
   unit)    do_unit ;;
   compare) do_compare ;;
-  run-all) do_gates; do_unit; do_compare ;;
+  perf)    do_perf ;;
+  run-all) do_gates; do_unit; do_compare; do_perf ;;
   bash)    exec bash ;;
   *)       exec "$@" ;;
 esac

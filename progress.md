@@ -88,3 +88,10 @@
   （capsh --drop=all 在本环境 exec 任何二进制均 rc=126，弃用）
 - 方案：prlimit --nproc=N + setpriv --reuid=65534 --clear-groups（实测 fork: retry 生效）
 - v9：DSH-PLUGIN 22/0 满分；能力清单五项全部 enforced（test-result 证据）；单测 87/87
+
+## 会话 2 续（PERF-01 基线）
+
+- perf.ts 采样器（30 次/对象，median/p95/min/max + 相对开销）+ entrypoint perf 命令
+- 结果：bare 4ms；DSH-BASE 138ms；DSH-PLUGIN 243ms（+105ms 端到端，主要为 driver 进程/管线成本）；
+  SRT 288ms；nsjail 9ms
+- 钩子级 micro-bench：审计 append 0.0113ms/记录（≈0.023ms/调用对）——§6.3 的 5ms 目标余量约 200 倍

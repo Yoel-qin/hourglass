@@ -84,9 +84,17 @@ namespace 创建在非特权容器被 runtime 阻止（实测），privileged �
 - **三层事实关联**：byCall(callId) 返回 begin+end 链；backend.source 精确到 value.sandbox/meta.sandbox；
   os_observation=unavailable 显式标注。
 
-## 5. 性能
+## 5. 性能（PERF-01 基线，30 次/对象，perf-20261014T121259Z）
 
-未纳入本阶段（计划 §6 要求 30 次重复 + 独立 CI job；compare 报告含每次 case durationMs 原始值）。
+| 对象 | median | p95 | 绝对开销 | 相对 |
+|---|---:|---:|---:|---:|
+| bare（无沙箱） | 4ms | 5ms | — | — |
+| DSH-BASE | 138ms | 177ms | +134ms | ×34.5 |
+| DSH-PLUGIN | 243ms | 281ms | +239ms | ×60.8 |
+| SRT | 288ms | 300ms | +284ms | ×72.0 |
+| NSJAIL | 9ms | 12ms | +5ms | ×2.25 |
+
+**钩子级 micro-bench**：审计账本 append 0.0113ms/记录（begin+end 对 ≈ 0.023ms/调用，2000 次实测）——计划 §6.3 的「策略钩子 p95 ≤ 5ms」目标有约 200 倍余量。DSH-PLUGIN 相对 DSH-BASE 的 +105ms 端到端差值主要来自 compare 管线的 plugin driver 进程启动与完整工具流水（node 冷启 + 组件挂载），不是治理钩子本身。阈值按计划不在本报告定稿（需 ADR）。原始样本在 perf.json。
 
 ## 6. 严重失败与缺口（v8 全景）
 
