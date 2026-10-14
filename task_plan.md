@@ -48,6 +48,12 @@
 - [x] 三层事实关联 schema + 诚实性规则（value.sandbox 提取、stderr 不升级、os_observation=unavailable）
 - [ ] Docker 内全量测试验证
 
+### 阶段 9：NET-13 Harness 代调用边界 — status: complete
+- [x] case schema 扩展 tool 形态（harness 工具层调用，非沙箱 shell）；driver 增 web_fetch 工具（进程内 fetch，模拟真实 web-fetch 语义）
+- [x] v10 实测：DSH-PLUGIN NET-13 FAIL——服务端收到 canary，**Harness 代调用旁路被服务端证据证实**（计划的已知边界，P2 计划原文要求披露而非掩盖）
+- [x] 补偿达成：该调用在审计账本有完整 begin+end 记录（tool=web_fetch、durationMs）——旁路存在但不是未审计的旁路
+- [x] NET-14（持久 PTY 生命周期）未实现：smoke-p2 gate 将按计划语义对其明确阻塞（blocked），待 terminal 工具面就绪后交付
+
 ### 阶段 8：RES-04 攻坚（nproc 硬限制） — status: complete
 - [x] 根因：userns 内 root 持 CAP_SYS_ADMIN 使内核豁免 RLIMIT_NPROC（fork 检查 capable() 为真即跳过）
 - [x] 方案：prlimit --nproc=N 外层 + setpriv --reuid=65534 --clear-groups 内层（无 CAP 的 uid 使限制生效；实测 fork: retry）

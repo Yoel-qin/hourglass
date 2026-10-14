@@ -134,6 +134,31 @@ async function main(): Promise<void> {
       }
     },
   }))
+  // A harness-mediated fetch tool (NET-13): like the real web-fetch tool it
+  // runs INSIDE the harness process — no confine, no sandbox. Whether its
+  // traffic is bound by any policy is exactly what NET-13 measures.
+  ctx.tools.register(defineTool({
+    name: 'web_fetch',
+    description: 'harness-mediated fetch (hourglass compare driver)',
+    parameters: {
+      url: { type: 'string', required: true },
+      canary: { type: 'string' },
+    } as never,
+    output: {
+      schema: { type: 'string' } as never,
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    },
+    async execute(args) {
+      const { url, canary } = args as { url: string; canary?: string }
+      try {
+        const response = await fetch(url, { method: 'POST', body: canary ?? '', signal: AbortSignal.timeout(10_000) })
+        const body = await response.text()
+        return `status=${response.status} body=${body.slice(0, 120)}`
+      } catch (error) {
+        return `fetch-failed: ${error instanceof Error ? error.message : String(error)}`
+      }
+    },
+  }))
   // A tool that always fails by throwing — the honest "ordinary failure"
   // signal for AUD classification (a non-zero bash exit is a *successful*
   // tool result carrying exitCode in its value, per the bash-sandbox contract).

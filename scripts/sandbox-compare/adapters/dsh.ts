@@ -10,7 +10,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { CompareCase, SubjectId } from '../schema.ts'
-import { renderAction } from '../cases.ts'
+import { renderAction, renderToolArguments } from '../cases.ts'
 import { ALLOW_HOST } from '../net-service.ts'
 import type { RawExecution, RunEnv, SubjectAdapter } from './types.ts'
 
@@ -97,7 +97,9 @@ export const dshPlugin: SubjectAdapter = {
     // The plugin subject always runs the full governance composition (audit
     // ledger + optional net policy) through a real tool pipeline, so its
     // results demonstrate the plugins' semantics end-to-end.
-    const command = renderAction(caseDefinition.action, env.context)
+    const command = caseDefinition.action.kind === 'tool'
+      ? ''
+      : renderAction(caseDefinition.action, env.context)
     const ledgerDir = mkdtempSync(join(tmpdir(), 'hourglass-aud-'))
     const ledgerPath = join(ledgerDir, 'audit.jsonl')
     const net = caseDefinition.profile === 'P3-NET-ALLOWLIST'
@@ -108,12 +110,18 @@ export const dshPlugin: SubjectAdapter = {
       ? [env.context.sensitive]
       : undefined
     const request = {
-      commands: [
-        { callId: `aud-${caseDefinition.id}`, tool: 'sh', arguments: { command } },
-        ...(caseDefinition.category === 'aud'
-          ? [{ callId: `aud-${caseDefinition.id}-failing`, tool: 'sh-fails', arguments: {} }]
-          : []),
-      ],
+      commands: caseDefinition.action.kind === 'tool'
+        ? [{
+            callId: `aud-${caseDefinition.id}`,
+            tool: caseDefinition.action.tool,
+            arguments: renderToolArguments(caseDefinition.action, env.context),
+          }]
+        : [
+            { callId: `aud-${caseDefinition.id}`, tool: 'sh', arguments: { command } },
+            ...(caseDefinition.category === 'aud'
+              ? [{ callId: `aud-${caseDefinition.id}-failing`, tool: 'sh-fails', arguments: {} }]
+              : []),
+          ],
       mode: dshMode(caseDefinition.profile),
       workspaceRoot: env.context.workspace,
       ledgerPath,

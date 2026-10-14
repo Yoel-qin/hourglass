@@ -95,3 +95,11 @@
 - 结果：bare 4ms；DSH-BASE 138ms；DSH-PLUGIN 243ms（+105ms 端到端，主要为 driver 进程/管线成本）；
   SRT 288ms；nsjail 9ms
 - 钩子级 micro-bench：审计 append 0.0113ms/记录（≈0.023ms/调用对）——§6.3 的 5ms 目标余量约 200 倍
+
+## 会话 2 续 2（NET-13）
+
+- case schema + tool 形态；driver web_fetch 工具（进程内 fetch）；adapter tool 分支
+- v10（23 case × 4 = 92 结果）：DSH-PLUGIN 22/1——唯一 fail 是 NET-13 的**有意边界暴露**：
+  Harness 代调用旁路被服务端证据证实，且该调用有完整审计记录（非未审计旁路）——符合计划
+  「分别记录边界，不得掩盖」的要求
+- NET-14 未实现：smoke-p2 gate 按计划语义对其明确 blocked

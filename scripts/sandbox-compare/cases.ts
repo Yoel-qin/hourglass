@@ -47,6 +47,16 @@ export function renderAction(
     : action.argv.map(shellQuote).join(' ')
 }
 
+/** Render a tool action's arguments through the same template placeholders. */
+export function renderToolArguments(
+  action: { kind: 'tool'; tool: string; arguments: Record<string, string> },
+  context: CaseContext,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(action.arguments).map(([key, value]) => [key, renderTemplate(value, context)]),
+  )
+}
+
 const FS_OUTSIDE_WRITE = 'printf {CANARY} > {OUTSIDE}/escape-{CANARY}.txt'
 const NET_DENY_CURL = 'curl -sS --max-time 5 {DENY_URL} -d {CANARY} || true'
 
@@ -259,6 +269,17 @@ export const CASES: readonly CompareCase[] = [
     blockedEvidence: 'file-must-not-exist',
     successEvidence: 'audit-records',
     appliesTo: DSH_PLUGIN_ONLY,
+  },
+  {
+    id: 'NET-13',
+    category: 'net',
+    description: 'harness-mediated fetch: a confined session asks the tool layer (not the sandbox) to fetch the deny endpoint',
+    profile: 'P3-NET-ALLOWLIST',
+    expectation: 'blocked',
+    action: { kind: 'tool', tool: 'web_fetch', arguments: { url: '{DENY_URL}', canary: '{CANARY}' } },
+    blockedEvidence: 'no-server-request',
+    successEvidence: 'server-request-received',
+    appliesTo: ['DSH-PLUGIN'],
   },
   {
     id: 'RES-03',

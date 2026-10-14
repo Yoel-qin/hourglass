@@ -25,6 +25,7 @@
 | **敏感读保护（FS-11/12）** | ❌ 内容泄漏（真实缺口） | ✅ **零泄漏**（tmpfs 遮蔽，含 symlink 别名） | ✅ denyRead | unsupported（无机制） |
 | 网络出口 deny（NET-02..06/10） | ❌ 全放行（真实缺口） | ✅ 服务端零记录 | ✅ 代理 allowlist | ✅ netns 全断 |
 | 网络出口 allow（NET-01） | ✅（无隔离自然可达） | ✅ 经代理放行 | ⚠️ 环境限制* | ⚠️ 机制性** |
+| **Harness 代调用（NET-13）** | n/a | ⚠️ **旁路证实**：受限会话经 harness web fetch 到达 deny 端点（服务端证据）；调用已被完整审计（begin+end）——非未审计旁路 | n/a | n/a |
 | fail-closed（ROB-01） | ✅ | ✅（含 net/read 层） | n/a | n/a |
 | 审计分类（AUD-02/11） | n/a | ✅ | n/a | n/a |
 

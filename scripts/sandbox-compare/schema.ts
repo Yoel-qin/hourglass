@@ -19,6 +19,11 @@ export type CaseCategory = 'fs' | 'net' | 'res' | 'aud' | 'rob'
 export type CaseAction =
   | { kind: 'shell'; command: string }
   | { kind: 'argv'; argv: readonly string[] }
+  /**
+   * A harness-tool call the case asks the subject's TOOL layer to run (not
+   * the sandboxed shell) — for NET-13-style delegated-call boundary cases.
+   */
+  | { kind: 'tool'; tool: string; arguments: Record<string, string> }
 
 export interface CompareCase {
   readonly id: string
