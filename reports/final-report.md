@@ -35,7 +35,7 @@
 
 **P3 资源配额（@hourglass/sandbox-rsrc + v8 矩阵）**：prlimit 硬上限（RLIMIT_AS/CPU/FSIZE/NOFILE）注入命令前缀，内核强制。RES-03（内存）/RES-06（fd）：DSH-PLUGIN 真实拒绝超限（PASS）；nsjail 原生 rlimit 同效（其 --rlimit_as 单位为 MB）；DSH-BASE 无强制（FAIL=缺口）；SRT 无 rlimit 配置面（unsupported）。**RES-04（进程数）：已攻坚成功——prlimit --nproc=N 外层 + setpriv uid 降权（65534）内层：无 capability 的 uid 让内核 fork 检查真实生效（实测 fork: retry 拒绝）；DSH-PLUGIN PASS。** 代价声明：nproc 强制伴随 uid 降权（沙箱内进程需普通文件权限写文件）。nsjail 的原生 rlimit_nproc 受同样 CAP 豁免且无降权通道 → 如实 FAIL（机制差异）；DSH-BASE 无配额（缺口）。
 
-**总分（v9，22 case × 4）：DSH-BASE 9/11/2、DSH-PLUGIN 22/0/0（满分）、SRT 15/1/6、NSJAIL 15/2/5。能力清单（test-result 证据）：DSH-PLUGIN 五项全部 enforced（fileRead/fileWrite/netEgress/resourceLimits/processControl）；DSH-BASE fileWrite=enabled 之外四项 absent。**
+**总分（v15，37 case × 4 = 148 结果）：DSH-PLUGIN 36/1/0（唯一 fail = NET-13 有意暴露的 Harness 边界且已审计）；DSH-BASE 14/12/9（基线缺口画像）；SRT 19/2/16；NSJAIL 20/3/13。能力清单（test-result 证据）：DSH-PLUGIN 五项全部 enforced（fileRead/fileWrite/netEgress/resourceLimits/processControl）；DSH-BASE fileWrite=enforced 之外四项 absent。** 变体轮新增全部真实通过：硬链接/父目录/解释器变体阻断（FS-07/08/09）、IPv6 隔离与规范化一致性不误杀（NET-07/09）、并发会话 allowlist 零串线（NET-11）、unix-socket 直连仍受控（NET-12）、墙钟/CPU/文件大小三种内核限额准点生效（RES-01/02/05，fsize 实测恰好截停在 64KB 上限）、非法 allowlist 条目绝不放宽（ROB-03）。
 DSH-PLUGIN 相对 DSH-BASE 的净增量：网络出口（6 case）+ 敏感读（2 case）+ 审计（2 case），
 且文件边界与 fail-closed 零回归。
 

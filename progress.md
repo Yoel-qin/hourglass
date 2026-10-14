@@ -121,3 +121,10 @@
 - ROB-02 PASS：socket 定位修复（目标路径反查源路径）；代理死亡→全 confine 拒绝
 - AUD-15 PASS：danger 跳 confine 但审计完整；undefined 字段破坏 lossless JSON 校验（条件构造修复）
 - v13（26×4=104）：DSH-PLUGIN 25/1
+
+## 会话 2 续 6（变体 case 补齐）
+
+- 11 个新 case 全过：FS-07/08/09、NET-07/09/11/12、RES-01/02/05、ROB-03
+- 亮点：NET-11 并发双会话（A 放行/B 拒绝同刻成立）；RES-05 fsize 实测恰好截停在 64KB；
+  RES-02 exit 137 信号识别；NET-09 大写+尾点 allow host 仍放行（不误杀）
+- v15 定稿（37×4=148）：DSH-PLUGIN 36/1/0（唯一 fail=NET-13 有意边界，零 unknown）

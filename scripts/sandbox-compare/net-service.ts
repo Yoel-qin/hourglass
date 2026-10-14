@@ -63,7 +63,7 @@ export async function startNetService(port = 0): Promise<NetService> {
     get requests() {
       return recorded
     },
-    requestsFor: (host: string) => recorded.filter(entry => entry.host.startsWith(host)),
+    requestsFor: (host: string) => recorded.filter(entry => entry.host.toLowerCase().startsWith(host.toLowerCase())),
     stop: () => new Promise<void>((resolve, reject) => server.close(error => (error === undefined ? resolve() : reject(error)))),
   }
 }

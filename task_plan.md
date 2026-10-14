@@ -48,6 +48,14 @@
 - [x] 三层事实关联 schema + 诚实性规则（value.sandbox 提取、stderr 不升级、os_observation=unavailable）
 - [ ] Docker 内全量测试验证
 
+### 阶段 13：变体 case 补齐（11 个新 case） — status: complete
+- [x] FS-07（硬链接/大小写变体）、FS-08（父目录 rename/delete 攻击）、FS-09（python/node 解释器变体）——全阻断
+- [x] NET-07（IPv6 loopback 隔离）、NET-09（大小写+尾点规范化一致性：allow 变体仍过=不误杀）、NET-11（并发双会话 allowlist 不串线：A 过/B 拒同刻成立）、NET-12（unix socket 直连代理仍受 allowlist）
+- [x] RES-01（墙钟 30s 准点杀+无 late 副作用）、RES-02（RLIMIT_CPU SIGKILL，exit 137 识别）、RES-05（RLIMIT_FSIZE 恰好截停在 64KB 上限）
+- [x] ROB-03（非法 allowlist 条目不放宽为通配——合法请求仍拒）
+- [x] 判定增强：exitCode 137/“File size limit exceeded” 信号特征；net-service Host 匹配大小写不敏感
+- [x] **v15 定稿（37 case × 4 = 148 结果）：DSH-PLUGIN 36/1/0**（唯一 fail = NET-13 有意边界；零 unknown）
+
 ### 阶段 12：ROB-02 + AUD-15 — status: complete
 - [x] ROB-02（代理死亡 fail-closed e2e）：confine 探测揭示 socket 源路径→rm 模拟 provider 死亡→后续 confine 全部拒绝（SANDBOX_UNAVAILABLE，零副作用）
 - [x] AUD-15（danger 审计披露）：danger 模式跳过 confine（DSH 契约）但调用完整走审计管线（begin+end）+ unrestricted 事实披露

@@ -29,9 +29,11 @@ function dshMode(profile: CompareCase['profile']): 'read-only' | 'workspace-writ
 }
 
 /** Per-case hard caps the rsrc plugin applies under P4-RESOURCE-LIMITS. */
-const RES_QUOTAS: Record<string, { nproc?: number; asBytes?: number; nofile?: number }> = {
+const RES_QUOTAS: Record<string, { nproc?: number; asBytes?: number; nofile?: number; cpuSeconds?: number; fsizeBytes?: number }> = {
+  'RES-02': { cpuSeconds: 2 },
   'RES-03': { asBytes: 100 * 1024 * 1024 },
   'RES-04': { nproc: 8 },
+  'RES-05': { fsizeBytes: 64 * 1024 },
   'RES-06': { nofile: 32 },
 }
 
@@ -59,6 +61,50 @@ function runNode(script: string, input: unknown, env: NodeJS.ProcessEnv, timeout
     child.stdin.write(`${JSON.stringify(input)}\n`)
     child.stdin.end()
   })
+}
+
+/**
+ * NET-11 concurrent dual-session run: session A (allowlisted) must reach the
+ * allow endpoint at the same time session B (empty allowlist) is denied —
+ * proving allowlists do not leak across concurrent driver sessions. The
+ * verdict keys on B's -B canary; A's reach is recorded as the non-crossing
+ * positive control.
+ */
+async function runNet11(caseId: string, caseCommand: string, env: RunEnv): Promise<RawExecution> {
+  const startedAt = Date.now()
+  const baseRequest = {
+    mode: 'workspace-write' as const,
+    workspaceRoot: env.context.workspace,
+    cwd: env.context.workspace,
+  }
+  const sessionA = {
+    ...baseRequest,
+    ledgerPath: '/tmp/hourglass-net11-a.jsonl',
+    net: { mode: 'allowlist' as const, allowlist: [ALLOW_HOST] },
+    commands: [{
+      callId: `net11-a-${caseId}`,
+      tool: 'sh',
+      arguments: { command: `curl -sS --max-time 5 ${env.context.allowUrl} -d ${env.context.canary}-A || true` },
+    }],
+  }
+  const sessionB = {
+    ...baseRequest,
+    ledgerPath: '/tmp/hourglass-net11-b.jsonl',
+    net: { mode: 'allowlist' as const, allowlist: [] },
+    commands: [{ callId: `net11-b-${caseId}`, tool: 'sh', arguments: { command: caseCommand } }],
+  }
+  const [a, b] = await Promise.all([
+    runNode([PLUGIN_DRIVER], sessionA, env.env, 60_000),
+    runNode([PLUGIN_DRIVER], sessionB, env.env, 60_000),
+  ])
+  return {
+    ...b,
+    durationMs: Date.now() - startedAt,
+    notes: [
+      'NET-11 session A (allowlisted) ran concurrently with session B (empty allowlist)',
+      `session A stdout: ${a.stdout.slice(0, 80)}`,
+    ],
+  }
 }
 
 /**
@@ -151,13 +197,15 @@ export const dshPlugin: SubjectAdapter = {
       : renderAction(caseDefinition.action, env.context)
     const ledgerDir = mkdtempSync(join(tmpdir(), 'hourglass-aud-'))
     const ledgerPath = join(ledgerDir, 'audit.jsonl')
-    const net = caseDefinition.profile === 'P3-NET-ALLOWLIST'
-      ? { mode: 'allowlist' as const, allowlist: caseDefinition.id === 'NET-10' ? [] : [ALLOW_HOST] }
+    const net = caseDefinition.id === 'ROB-03'
+      ? { mode: 'allowlist' as const, allowlist: ['bad host!'] }
       : caseDefinition.id === 'AUD-15'
         ? { mode: 'unrestricted' as const, allowlist: [] }
         : caseDefinition.id === 'ROB-02'
           ? { mode: 'allowlist' as const, allowlist: [ALLOW_HOST] }
-          : undefined
+          : caseDefinition.profile === 'P3-NET-ALLOWLIST'
+            ? { mode: 'allowlist' as const, allowlist: caseDefinition.id === 'NET-10' || caseDefinition.id === 'NET-11' ? [] : [ALLOW_HOST] }
+            : undefined
     const netFail = caseDefinition.id === 'ROB-02'
     const quota = caseDefinition.profile === 'P4-RESOURCE-LIMITS' ? RES_QUOTAS[caseDefinition.id] : undefined
     const readDeny = caseDefinition.profile === 'P2-DENY-READ'
@@ -190,7 +238,9 @@ export const dshPlugin: SubjectAdapter = {
     }
     const raw = caseDefinition.id === 'NET-14'
       ? await runNet14(caseDefinition.id, command, env)
-      : await runNode([PLUGIN_DRIVER], request, env.env, 90_000)
+      : caseDefinition.id === 'NET-11'
+        ? await runNet11(caseDefinition.id, command, env)
+        : await runNode([PLUGIN_DRIVER], request, env.env, 90_000)
     return {
       ...raw,
       notes: [

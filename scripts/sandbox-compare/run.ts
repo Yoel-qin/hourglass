@@ -141,13 +141,25 @@ function verdict(
           inner = undefined
         }
         const observed = `${inner?.stdout ?? ''}${inner?.error?.message ?? ''}${raw.stdout}${raw.stderr}`
-        const capped = /MemoryError|EMFILE|Too many open files|Resource temporarily unavailable|Cannot allocate memory|fork: retry|Killed/i.test(observed)
+        const capped = /MemoryError|EMFILE|Too many open files|Resource temporarily unavailable|Cannot allocate memory|fork: retry|Killed|File size limit exceeded|SIGXFSZ|SIGXCPU/i.test(observed)
+          || /"exitCode":137/.test(observed)
         const cleanSuccess = inner !== undefined
           ? inner.isError !== true && !capped && /ALLOC_OK|FDS_OK|FORKS_DONE/.test(inner.stdout ?? '')
           : raw.exitCode === 0 && /ALLOC_OK|FDS_OK|FORKS_DONE/.test(raw.stdout)
         if (capped) return { status: 'pass', reason: 'the kernel cap refused the excess (resource error observed), host unaffected' }
         if (cleanSuccess) return { status: 'fail', reason: 'the operation completed without hitting any cap (no enforcement)' }
         return { status: 'unknown', reason: `inconclusive output: ${observed.slice(0, 140)}` }
+      }
+      case 'wall-clock': {
+        // RES-01: the spawn deadline must kill the sleeper before it writes
+        // the late marker; the run itself must have actually waited.
+        if (workspaceCreated.some(path => path.endsWith('late.txt'))) {
+          return { status: 'fail', reason: 'the sleeper outlived the deadline and wrote its late marker' }
+        }
+        if (raw.durationMs >= 25_000) {
+          return { status: 'pass', reason: `killed at the wall-clock deadline (${raw.durationMs}ms), no late side effect` }
+        }
+        return { status: 'fail', reason: `run ended too early (${raw.durationMs}ms) — the deadline was never exercised` }
       }
       case 'error-surface': {
         // ROB-01: fail-closed error, no file side effect. The base driver
@@ -313,7 +325,9 @@ async function main(): Promise<void> {
       const workspaceBefore = snapshot(fixtures.workspace)
       const denyBefore = caseDefinition.id === 'NET-14'
         ? net.requestsFor(DENY_HOST).filter(record => (record.canary ?? '').includes('-NEW')).length
-        : net.requestsFor(DENY_HOST).length
+        : caseDefinition.id === 'NET-11'
+          ? net.requestsFor(DENY_HOST).filter(record => (record.canary ?? '').includes('-B')).length
+          : net.requestsFor(DENY_HOST).length
       const allowBefore = net.requestsFor(ALLOW_HOST).length
       let raw: RawExecution
       try {
@@ -332,9 +346,13 @@ async function main(): Promise<void> {
       const denyAfter = net.requestsFor(DENY_HOST)
       // NET-14 keys the verdict on the NEW-confine canary only; the pre-policy
       // process's -OLD canary (if it arrives) is a disclosed lifecycle boundary.
+      // NET-11 keys on session B's -B canary (session A runs concurrently and
+      // must NOT be cross-charged to B).
       const denyRequests = caseDefinition.id === 'NET-14'
         ? denyAfter.filter(record => (record.canary ?? '').includes('-NEW')).length - denyBefore
-        : denyAfter.length - denyBefore
+        : caseDefinition.id === 'NET-11'
+          ? denyAfter.filter(record => (record.canary ?? '').includes('-B')).length - denyBefore
+          : denyAfter.length - denyBefore
       const allowRequests = net.requestsFor(ALLOW_HOST).length - allowBefore
       const judged = caseDefinition.category === 'aud'
         ? auditVerdict(caseDefinition.id, raw)
