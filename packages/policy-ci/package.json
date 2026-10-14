@@ -1,0 +1,25 @@
+{
+  "name": "@hourglass/policy-ci",
+  "version": "0.1.0",
+  "description": "Pure, model-free policy replay and decision diffing for DSH sandbox policy changes: synthetic fixtures in, machine-readable diffs out",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.json"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-sandbox": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-sandbox": "workspace:*"
+  }
+}

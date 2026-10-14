@@ -1,0 +1,115 @@
+/**
+ * DSH adapters (DSH-BASE and DSH-PLUGIN). Both drive the real
+ * LocalSandboxProvider through the driver script inside the built DSH
+ * workspace; the plugin variant additionally runs a real tool pipeline with
+ * the hourglass audit plugin for AUD cases.
+ */
+
+import { spawn } from 'node:child_process'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { CompareCase, SubjectId } from '../schema.ts'
+import { renderTemplate } from '../cases.ts'
+import type { RawExecution, RunEnv, SubjectAdapter } from './types.ts'
+
+const DSH_ROOT = process.env.HG_DSH_ROOT ?? '/opt/dsh'
+const DRIVER = join(DSH_ROOT, 'packages', 'hourglass', 'driver', 'dsh-driver.ts')
+const PLUGIN_DRIVER = join(DSH_ROOT, 'packages', 'hourglass', 'driver', 'dsh-plugin-driver.ts')
+
+/** Map compare profiles onto DSH SandboxMode values (vocabulary is file-effects only). */
+function dshMode(profile: CompareCase['profile']): 'read-only' | 'workspace-write' {
+  // P2-DENY-READ maps to workspace-write: DSH has no denyRead mechanism, so
+  // FS-11/FS-12 under DSH report the honest gap (read succeeds) rather than
+  // pretending a mechanism exists.
+  return profile === 'P0-READONLY' ? 'read-only' : 'workspace-write'
+}
+
+function runNode(script: string, input: unknown, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<RawExecution> {
+  const startedAt = Date.now()
+  return new Promise(resolve => {
+    const child = spawn(process.execPath, ['--experimental-strip-types', script], {
+      cwd: DSH_ROOT,
+      env: { ...process.env, ...env },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', chunk => {
+      stdout += String(chunk)
+    })
+    child.stderr.on('data', chunk => {
+      stderr += String(chunk)
+    })
+    const timer = setTimeout(() => child.kill('SIGKILL'), timeoutMs)
+    child.on('close', () => {
+      clearTimeout(timer)
+      resolve({ exitCode: child.exitCode, stdout, stderr, durationMs: Date.now() - startedAt, notes: [] })
+    })
+    child.stdin.write(`${JSON.stringify(input)}\n`)
+    child.stdin.end()
+  })
+}
+
+function baseAdapter(id: SubjectId): SubjectAdapter {
+  return {
+    id,
+    async available() {
+      return { ok: true }
+    },
+    async execute(caseDefinition, env): Promise<RawExecution> {
+      const mode = dshMode(caseDefinition.profile)
+      const command = caseDefinition.action.kind === 'shell'
+        ? renderTemplate(caseDefinition.action.command, env.context)
+        : caseDefinition.action.argv.join(' ')
+      const request = {
+        argv: ['bash', '-lc', command],
+        mode,
+        workspaceRoot: env.context.workspace,
+        cwd: env.context.workspace,
+        env: { HG_PORT: String(env.context.port), HG_CANARY: env.context.canary, ...env.env },
+        timeoutMs: 30_000,
+        ...(caseDefinition.id === 'ROB-01'
+          ? { runnerCommand: ['/nonexistent/hourglass-rob-runner'], forceChain: ['bwrap'] }
+          : {}),
+      }
+      const raw = await runNode([DRIVER], request, env.env, 45_000)
+      return {
+        ...raw,
+        notes: [`driver: ${DRIVER}`, `mode: ${mode}`],
+      }
+    },
+  }
+}
+
+export const dshBase: SubjectAdapter = baseAdapter('DSH-BASE')
+
+export const dshPlugin: SubjectAdapter = {
+  ...baseAdapter('DSH-PLUGIN'),
+  supportsAudit: true,
+  async execute(caseDefinition, env): Promise<RawExecution> {
+    if (caseDefinition.category !== 'aud') return baseAdapter('DSH-PLUGIN').execute(caseDefinition, env)
+    // AUD cases: real tool pipeline with the audit plugin; the ledger path is
+    // returned through the aux channel for verdict computation.
+    const command = caseDefinition.action.kind === 'shell'
+      ? renderTemplate(caseDefinition.action.command, env.context)
+      : caseDefinition.action.argv.join(' ')
+    const ledgerDir = mkdtempSync(join(tmpdir(), 'hourglass-aud-'))
+    const ledgerPath = join(ledgerDir, 'audit.jsonl')
+    const request = {
+      commands: [
+        { callId: `aud-${caseDefinition.id}`, tool: 'sh', arguments: { command } },
+        { callId: `aud-${caseDefinition.id}-failing`, tool: 'sh-fails', arguments: {} },
+      ],
+      mode: dshMode(caseDefinition.profile),
+      workspaceRoot: env.context.workspace,
+      ledgerPath,
+      cwd: env.context.workspace,
+    }
+    const raw = await runNode([PLUGIN_DRIVER], request, env.env, 60_000)
+    return {
+      ...raw,
+      notes: [`driver: ${PLUGIN_DRIVER}`, `ledger: ${ledgerPath}`],
+    }
+  },
+}

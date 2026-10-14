@@ -1,0 +1,90 @@
+{
+  "schema": "hourglass-versions-lock/1",
+  "lockedAt": "2026-10-13T00:00:00Z",
+  "lockReason": "P0-B baseline lock; every report must quote this file's SHA-256",
+  "environment": {
+    "testPlatform": "linux (Docker privileged container on Docker Desktop/WSL2)",
+    "containerBase": "node:24-slim (Debian 12 bookworm)",
+    "kernelNote": "bwrap/nsjail/landlock require --privileged on this host; unprivileged userns clone is blocked by the container runtime",
+    "node": "24 (container image)",
+    "runnerNotes": "All tests run inside the hourglass-test Docker image; no host directories except reports/ are mounted"
+  },
+  "subjects": {
+    "DSH-BASE": {
+      "kind": "git",
+      "repository": "https://github.com/deepseek-ai/deepseek-harness",
+      "commit": "d743267388641bc76f17c45ce8b4c231aed1d32c",
+      "install": "pnpm install --frozen-lockfile && pnpm run build:native-system && pnpm run build",
+      "role": "baseline DSH sandbox without hourglass plugins"
+    },
+    "DSH-PLUGIN": {
+      "kind": "git+local",
+      "repository": "https://github.com/deepseek-ai/deepseek-harness",
+      "commit": "d743267388641bc76f17c45ce8b4c231aed1d32c",
+      "localOverlay": "hourglass packages/ at project root (audit, capabilities, policy-ci)",
+      "install": "fused into the DSH workspace as packages/hourglass/*; pnpm install --no-frozen-lockfile",
+      "role": "DSH sandbox plus hourglass governance plugins"
+    },
+    "SRT": {
+      "kind": "npm",
+      "package": "@anthropic-ai/sandbox-runtime",
+      "version": "0.0.79",
+      "tag": "v0.0.79",
+      "commit": "d9aac2098351ca17f3743fbaf6ecbd0051b7e00e",
+      "repository": "https://github.com/anthropics/sandbox-runtime",
+      "license": "Apache-2.0",
+      "install": "npm install -g --omit=dev @anthropic-ai/sandbox-runtime@0.0.79",
+      "platformSupport": {
+        "linux": "bwrap + unix-socket proxies",
+        "darwin": "seatbelt + localhost proxy",
+        "win32-verified": false,
+        "win32Note": "SRT upstream documents a Windows path via srt-sandbox user + WFP; the Docker test lane is Linux-only, so native Windows is not exercised here"
+      },
+      "role": "primary competitor: process-level file/network sandbox"
+    },
+    "CODEX": {
+      "kind": "binary",
+      "package": "codex",
+      "version": "0.162.1",
+      "tag": "rust-v0.162.1",
+      "tagObject": "7a078f6bb4ce0dc2a81408b334ce52979d92c603",
+      "commit": "092d3acd6bec3e3a14bdc7e7a2810ab628ab759d",
+      "repository": "https://github.com/openai/codex",
+      "install": "release asset codex-x86_64-unknown-linux-musl.tar.gz installed to /usr/local/bin/codex",
+      "constraints": {
+        "authRequired": true,
+        "note": "codex exec requires OpenAI authentication; the test environment carries no credentials, so CODEX cases run as not-run with this reason unless credentials are provided"
+      },
+      "role": "secondary competitor: agent sandbox reference"
+    },
+    "NSJAIL": {
+      "kind": "source",
+      "package": "nsjail",
+      "version": "3.6",
+      "tag": "3.6",
+      "commit": "f78475530b46d0186111a9096b30725f816b55fe",
+      "repository": "https://github.com/google/nsjail",
+      "install": "git clone --depth 1 --branch 3.6 && make && install to /usr/local/bin",
+      "platformSupport": { "linux": "namespaces + seccomp + rlimits", "darwin": false, "win32": false },
+      "role": "Linux strong-isolation reference"
+    }
+  },
+  "ciActions": [],
+  "review": {
+    "lastReviewedAt": "2026-10-13",
+    "lastReviewedBy": "hourglass P0 session",
+    "policy": "updating any pinned version in this file requires review in the same PR; reports quote the file hash so silent drift is detectable"
+  },
+  "unsupportedDeclarations": [
+    {
+      "subject": "CODEX",
+      "scope": "all cases",
+      "reason": "no OpenAI credentials in the isolated test environment; honest not-run, never PASS"
+    },
+    {
+      "subject": "SRT",
+      "scope": "native windows",
+      "reason": "linux-only Docker lane; upstream Windows support unverified here"
+    }
+  ]
+}

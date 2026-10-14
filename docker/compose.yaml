@@ -1,0 +1,25 @@
+# hourglass test environment.
+#
+# The test container runs privileged: the Linux sandbox back-ends under test
+# (bubblewrap, nsjail, landlock) need to create user/mount/pid namespaces,
+# which Docker Desktop on WSL2 blocks for unprivileged containers. The
+# container is a dedicated, disposable test box: no host credential dirs are
+# mounted, DSH is cloned inside the image at a pinned commit, and all test
+# fixtures are synthetic.
+services:
+  hourglass-test:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: hourglass-test
+    working_dir: /opt/dsh
+    privileged: true
+    environment:
+      - DSH_TELEMETRY_DISABLED=1
+      - NO_COLOR=1
+    volumes:
+      # Only the reports directory is shared with the host.
+      - type: bind
+        source: ../reports
+        target: /opt/reports
+    command: ["/usr/local/bin/hourglass-entrypoint", "run-all"]

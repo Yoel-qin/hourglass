@@ -1,0 +1,10 @@
+{
+  "schema": "hourglass-smoke/1",
+  "stage": "P1",
+  "cases": ["FS-02", "FS-05", "FS-06", "NET-02", "NET-03", "NET-05", "ROB-01", "AUD-02", "AUD-11"],
+  "subjects": ["DSH-BASE", "DSH-PLUGIN", "SRT", "NSJAIL"],
+  "gate": {
+    "zeroSkip": true,
+    "note": "planned case count must equal executed case count per subject; only explicitly configured unsupported cases may be reported as unsupported with a reason"
+  }
+}

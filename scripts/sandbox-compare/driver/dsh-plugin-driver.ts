@@ -1,0 +1,132 @@
+/**
+ * DSH-PLUGIN driver: a real tool pipeline with the hourglass audit plugin.
+ * Boots the same core the testkit provides, registers a shell tool whose
+ * body runs through ctx.sandbox.confine and whose canonical value stamps the
+ * consumer's sandbox facts (the tool-bash contract), then executes calls and
+ * prints the audit ledger the plugin wrote.
+ */
+
+import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { Context } from '@deepseek-ai/cordis'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
+import { defineTool } from '@deepseek-ai/dsh-tools'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import * as AuditPlugin from '@hourglass/sandbox-audit/src/index.ts'
+
+interface PluginDriverRequest {
+  commands: { callId: string; tool: string; arguments: Record<string, unknown> }[]
+  mode: 'read-only' | 'workspace-write'
+  workspaceRoot: string
+  ledgerPath: string
+  cwd?: string
+}
+
+interface PluginDriverResponse {
+  ok: boolean
+  results: { callId: string; isError: boolean; error?: { code?: string; message: string }; stdout: string; stderr: string }[]
+  ledger: unknown[]
+  error?: string
+}
+
+async function main(): Promise<void> {
+  const request = JSON.parse(readFileSync(0, 'utf8')) as PluginDriverRequest
+  const ctx = new Context()
+  await mountAgentLoopTestDependencies(ctx)
+  await ctx.plugin(LocalSandboxProvider, {})
+  await ctx.plugin(AuditPlugin, { ledgerPath: request.ledgerPath })
+  ctx.tools.register(defineTool({
+    name: 'sh',
+    description: 'sandboxed shell (hourglass compare driver)',
+    parameters: {
+      command: { type: 'string', required: true },
+    } as never,
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          exitCode: { type: 'integer' },
+          stdout: { type: 'string' },
+          stderr: { type: 'string' },
+          sandbox: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              mode: { type: 'string' },
+              denied: { type: 'boolean' },
+              enforcement: { type: 'string' },
+              runnerFailed: { type: 'boolean' },
+            },
+          },
+        },
+      } as never,
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
+    },
+    async execute(args) {
+      const command = (args as { command: string }).command
+      const confined = await ctx.sandbox.confine(['bash', '-c', command], {
+        mode: request.mode,
+        workspaceRoot: request.workspaceRoot,
+      })
+      const result = spawnSync(confined.argv[0] as string, confined.argv.slice(1), {
+        cwd: request.cwd ?? process.cwd(),
+        encoding: 'utf8',
+        timeout: 30_000,
+      })
+      const denied = result.status !== 0
+        && confined.denialSignatures.some(signature => (result.stderr ?? '').toLowerCase().includes(signature.toLowerCase()))
+      return {
+        exitCode: result.status ?? -1,
+        stdout: result.stdout ?? '',
+        stderr: result.stderr ?? '',
+        sandbox: {
+          mode: request.mode,
+          denied,
+          enforcement: confined.enforcement,
+        },
+      }
+    },
+  }))
+  // A tool that always fails by throwing — the honest "ordinary failure"
+  // signal for AUD classification (a non-zero bash exit is a *successful*
+  // tool result carrying exitCode in its value, per the bash-sandbox contract).
+  ctx.tools.register(defineTool({
+    name: 'sh-fails',
+    description: 'always-failing probe (hourglass compare driver)',
+    parameters: {} as never,
+    output: {
+      schema: { type: 'string' } as never,
+      render: () => [{ type: 'text', text: 'failed' }],
+    },
+    async execute() {
+      throw new Error('hourglass: deliberate ordinary failure')
+    },
+  }))
+  const signal = new AbortController().signal
+  const response: PluginDriverResponse = { ok: true, results: [], ledger: [] }
+  for (const command of request.commands) {
+    const result = await ctx.tools.execute({
+      signal,
+      callId: ToolCallId(command.callId),
+      name: command.tool,
+      arguments: command.arguments,
+    })
+    response.results.push({
+      callId: command.callId,
+      isError: result.isError,
+      ...(result.isError
+        ? { error: { code: result.error.info?.code, message: result.error.message } }
+        : {}),
+      stdout: result.content.map(block => block.type === 'text' ? block.text : '').join(''),
+      stderr: '',
+    })
+  }
+  const ledgerText = readFileSync(request.ledgerPath, 'utf8').trim()
+  response.ledger = ledgerText === '' ? [] : ledgerText.split('\n').map(line => JSON.parse(line) as unknown)
+  process.stdout.write(`${JSON.stringify(response)}\n`)
+  await ctx.fiber.dispose()
+}
+
+await main()

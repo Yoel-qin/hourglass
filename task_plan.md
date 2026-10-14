@@ -1,0 +1,76 @@
+# Hourglass — DSH 沙箱治理插件项目任务计划
+
+> 项目位置：`D:\Aiproject\hourglass`（独立项目，名为 hourglass）
+> 本体项目：`D:\Aiproject\deepseek-harness`（DSH，只读引用，不修改）
+> 测试环境：本地 Docker（一切测试在 Docker 中进行）
+> 模式：完全自动模式（自主决策，按时间盒推进）
+> 计划依据：`DeepSeek-Harness-沙箱插件开发与竞品对比测试计划.md`（2026-10-13）
+
+## 总体目标
+
+在 hourglass 项目中实现 DSH 沙箱治理插件（审计账本 + 能力清单 + Policy CI），
+并建立可复现的开源沙箱对比测试基线（DSH-BASE / DSH-PLUGIN / SRT / Codex / nsjail），
+所有测试在 Docker 容器中运行，产出带证据的对比报告。
+
+## 阶段
+
+### 阶段 0：环境与侦察（P0-A） — status: complete
+- [x] 检查 Docker 可用性、版本、资源（29.7.2；credential helper 问题用 DOCKER_CONFIG 绕过）
+- [x] 记录 DSH 仓库 commit、Node/pnpm 版本、工作区状态
+- [x] 阅读关键文档与代码（2 个 Explore agent 完成架构/沙箱/CI 侦察，详见 findings.md）
+- [x] 核查 packages/sandbox/* 包结构
+- [x] 核查工具事件扩展点（tools/pre-execute、post-execute、execute、result、guard）
+- [x] 核查 ctx.approval、ctx.storage、storage-sqlite
+- [x] 核查 .github/workflows/sandbox.yml 四 leg 矩阵
+- [x] 竞品版本锁定：SRT v0.0.79 / Codex 0.162.1 / nsjail 3.6
+- [x] findings.md 侦察报告完成
+
+### 阶段 1：hourglass 项目骨架 + Docker 测试环境（P0-B1 起点） — status: in_progress
+- [x] 初始化 hourglass 项目结构（pnpm workspace）
+- [x] Dockerfile：node24-slim + bwrap + nsjail(3.6 源码编译) + SRT(npm 0.0.79) + Codex(二进制) + DSH(clone d743267)
+- [x] compose.yaml（privileged 测试容器）+ entrypoint.sh + .dockerignore
+- [x] 集成方式：hourglass 包 COPY 进容器内 DSH clone 的 packages/hourglass/（workspace 通配）
+- [ ] 镜像构建（后台进行中）→ 容器内验证 DSH 可构建、测试可运行
+
+### 阶段 2：对比测试框架（P0-B1/B2/C） — status: complete
+- [x] scripts/sandbox-compare/：schema、cases（19 case）、adapters（5 对象）、driver（2 个）、net-service、run.ts
+- [x] versions.lock.json + validate-versions-lock.ts（gate:versions-lock）
+- [x] smoke-p1.json（9 case）+ smoke-p2.json（13 case）
+- [x] 受控本地网络服务（allow/deny endpoint + canary 记录）
+- [x] DSH-BASE / DSH-PLUGIN adapter（真实 LocalSandboxProvider + 审计管线）
+- [x] SRT adapter（srt-settings 语义映射）、nsjail adapter（namespace 粒度）、Codex（not-run 诚实）
+- [ ] 容器内实际运行对比、生成报告
+
+### 阶段 3：hourglass 插件实现（P1） — status: complete
+- [x] audit 包：types/redact/classify/ledger/index + 单测（classify/redact/ledger/audit）+ REAL-composition loader 测试
+- [x] capabilities 包：静态矩阵 + 探测 + 诚实规则 + 测试
+- [x] policy-ci 包：语义模型 + replay/diff + 合成 fixtures + golden（13 决策，语义验证通过）
+- [x] 三层事实关联 schema + 诚实性规则（value.sandbox 提取、stderr 不升级、os_observation=unavailable）
+- [ ] Docker 内全量测试验证
+
+### 阶段 4：报告与交付 — status: in_progress
+- [x] ADR-001（独立项目决策、扩展点、容器 privileged 依据）
+- [x] README（含 Testing hooks 章节）
+- [x] golden 文件生成（宿主 Node 22 strip-types 验证通过）
+- [ ] 容器内测试全绿
+- [ ] 对比报告生成
+- [ ] 最终报告（按计划第 11 节模板）
+
+## 决策记录
+
+| 决策 | 理由 |
+|---|---|
+| hourglass 为独立项目，不直接改 DSH 仓库 | 用户指令：在 hourglass 文件夹完成项目；DSH 作为本体只读引用 |
+| 所有测试在 Docker Linux 容器中运行 | 用户指令 + Windows 宿主安全（避免污染宿主 WFP/ACL） |
+| 优先交付 P0 + P1（计划核心），后续阶段按时间盒推进 | 完整 P0-P5 为 60-90 人日，单会话无法完成；按计划 10.1 时间盒规则执行 |
+
+## 遇到的错误
+
+| 错误 | 尝试次数 | 解决方案 |
+|------|---------|---------|
+| docker-credential-desktop not found（Git Bash） | 2 | 项目级 DOCKER_CONFIG=.docker-config（无 credsStore + contexts 元数据） |
+| 容器内 bwrap/userns EPERM | 3 | seccomp=unconfined 不够；--privileged 才可用（专用一次性测试容器） |
+| nsjail 编译缺 netlink/route/link.h | 1 | Debian 包名是 libnl-route-3-dev |
+| apt/codeload/git 在容器内慢或阻断 | 多次 | apt→USTC 镜像；GitHub 一律走 codeload tarball（git clone github.com 稳定失败）；npm→npmmirror（12 倍速） |
+| nsjail kafel submodule clone 失败 | 1 | 预置 kafel/（codeload tarball），kafel_init 见 Makefile 存在即跳过 git |
+| 后台命令 `docker build ... \| tail` 掩盖退出码 | 1 | 改为完整日志写文件 + `echo BUILD_EXIT=$?` |

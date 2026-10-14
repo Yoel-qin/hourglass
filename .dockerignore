@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+**/lib
+**/*.tsbuildinfo
+reports/runs
+.docker-config
+.git
+*.md
+!packages/*/README.md
+task_plan.md
+findings.md
+progress.md

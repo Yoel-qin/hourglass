@@ -1,0 +1,93 @@
+[
+  {
+    "caseId": "FS-B01",
+    "status": "decided",
+    "decision": "allow",
+    "mode": "workspace-write",
+    "reason": "workspace-write inside root"
+  },
+  {
+    "caseId": "FS-B02",
+    "status": "decided",
+    "decision": "deny",
+    "mode": "workspace-write",
+    "reason": "write /synth/outside/escape.txt outside workspace root"
+  },
+  {
+    "caseId": "FS-B03",
+    "status": "decided",
+    "decision": "deny",
+    "mode": "workspace-write",
+    "reason": "write /synth/workspace/../../etc/cron.d/x outside workspace root"
+  },
+  {
+    "caseId": "FS-B04",
+    "status": "decided",
+    "decision": "deny",
+    "mode": "read-only",
+    "reason": "read-only denies write /synth/workspace/a.txt"
+  },
+  {
+    "caseId": "FS-B05",
+    "status": "decided",
+    "decision": "allow",
+    "mode": "workspace-write",
+    "reason": "read not restricted by base policy"
+  },
+  {
+    "caseId": "FS-B06",
+    "status": "decided",
+    "decision": "deny",
+    "mode": "workspace-write",
+    "reason": "delete /synth/outside/victim.txt outside workspace root"
+  },
+  {
+    "caseId": "FS-B07",
+    "status": "decided",
+    "decision": "deny",
+    "mode": "workspace-write",
+    "reason": "rename /synth/workspace/a.ts -> /synth/outside/b.ts outside workspace root"
+  },
+  {
+    "caseId": "NET-B01",
+    "status": "decided",
+    "decision": "allow",
+    "mode": "workspace-write",
+    "reason": "no net extension configured (DSH base)"
+  },
+  {
+    "caseId": "NET-B02",
+    "status": "decided",
+    "decision": "allow",
+    "mode": "workspace-write",
+    "reason": "no net extension configured (DSH base)"
+  },
+  {
+    "caseId": "PROC-B01",
+    "status": "decided",
+    "decision": "allow",
+    "mode": "workspace-write",
+    "reason": "subprocess allowed; fs rules still apply to its writes"
+  },
+  {
+    "caseId": "MODE-B01",
+    "status": "decided",
+    "decision": "deny",
+    "mode": "read-only",
+    "reason": "read-only denies write /synth/workspace/x.txt"
+  },
+  {
+    "caseId": "MODE-B02",
+    "status": "decided",
+    "decision": "allow",
+    "mode": "workspace-write",
+    "reason": "workspace-write inside root"
+  },
+  {
+    "caseId": "MODE-B03",
+    "status": "decided",
+    "decision": "allow",
+    "mode": "danger-full-access",
+    "reason": "danger-full-access: no confinement"
+  }
+]

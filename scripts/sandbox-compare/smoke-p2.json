@@ -1,0 +1,13 @@
+{
+  "schema": "hourglass-smoke/2",
+  "stage": "P2",
+  "cases": [
+    "FS-02", "FS-05", "FS-06", "NET-02", "NET-03", "NET-05", "ROB-01", "AUD-02", "AUD-11",
+    "FS-11", "FS-12", "NET-13", "NET-14"
+  ],
+  "subjects": ["DSH-BASE", "DSH-PLUGIN", "SRT", "NSJAIL"],
+  "gate": {
+    "zeroSkip": true,
+    "note": "P2b denyRead cases (FS-11/FS-12) and Harness/PTY boundary cases (NET-13/NET-14) join the P1 nine; any undelivered P2a case must block the stage instead of being silently removed"
+  }
+}

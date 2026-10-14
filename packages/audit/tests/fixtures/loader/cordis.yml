@@ -1,0 +1,29 @@
+# Minimal hourglass-sandbox-audit composition through the real Loader boot
+# path: the core spine, the sandbox policy service, and the audit plugin. The
+# driver registers a probe tool, executes it, and reports what the ledger
+# recorded. Driven by the package's loader.spec.ts.
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+
+- id: fs
+  name: '@deepseek-ai/dsh-fs-local'
+
+- id: session-projections
+  name: '@deepseek-ai/dsh-session-projection'
+
+- id: working-directory
+  name: '@deepseek-ai/dsh-working-directory'
+
+- id: tools
+  name: '@deepseek-ai/dsh-tools'
+
+- id: sandbox-policy
+  name: '@deepseek-ai/dsh-sandbox-policy'
+  config:
+    mode: read-only
+    workspaceRoot: /tmp
+
+- id: hourglass-audit
+  name: '@hourglass/sandbox-audit'
+  config:
+    ledgerPath: hourglass-loader-audit.jsonl
