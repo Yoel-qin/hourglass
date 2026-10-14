@@ -1,6 +1,6 @@
-# hourglass 最终报告（P0 + P1 交付）
+# hourglass 最终报告（P0 + P1 + P2a 交付）
 
-> 生成：2026-10-14（完全自动模式会话 1）
+> 更新：2026-10-14（完全自动模式会话 1；P2a 网络强制加入后）
 > 计划依据：《DeepSeek-Harness-沙箱插件开发与竞品对比测试计划》
 > 代码：https://github.com/Yoel-qin/hourglass（master）
 
@@ -17,18 +17,25 @@
 - **Policy CI**（@hourglass/policy-ci）：合成 fixture 的纯函数回放 + 决策 diff（含 NET-09 域名规范化
   13 边界用例），CI 零网络/零模型/零真实会话。
 
-**对比结论（首个 smoke-p1 矩阵，全部容器内真实副作用判定）：**
+**对比结论（smoke-p1 矩阵，全部容器内真实副作用判定；P2a 后 DSH-PLUGIN 满分）：**
 
-| 维度 | DSH-BASE | DSH-PLUGIN | SRT 0.0.79 | nsjail 3.6 |
+| 维度 | DSH-BASE | DSH-PLUGIN（P2a 后） | SRT 0.0.79 | nsjail 3.6 |
 |---|---|---|---|---|
-| 文件写边界（FS-02/05/06） | ✅ bwrap 全拦 | ✅ 与 BASE 一致 | ✅ | ✅ |
-| fail-closed（ROB-01） | ✅ SANDBOX_UNAVAILABLE | ✅ | n/a | n/a |
-| 网络出口（NET-02/03/05） | ❌ 全部放行 | ❌ 同 BASE（真实缺口） | ✅ 代理 allowlist 全拦 | ✅ net-ns 全断 |
+| 文件写边界（FS-02/05/06） | ✅ bwrap 全拦 | ✅ 无回归 | ✅ | ✅ |
+| fail-closed（ROB-01） | ✅ SANDBOX_UNAVAILABLE | ✅（含网络层 fail-closed） | n/a | n/a |
+| 网络出口（NET-02/03/05） | ❌ 全部放行（真实缺口） | ✅ **9/9 全 PASS：服务端零 canary 记录** | ✅ 代理 allowlist 全拦 | ✅ net-ns 全断 |
 | 审计分类（AUD-02/11） | n/a | ✅ | n/a（不可比） | n/a（不可比） |
 
-- DSH 的网络出口是**已证实的真实安全缺口**：deny 端点收到了全部 canary 请求（服务端证据），
-  移除代理变量/原生 TCP 均无阻拦。这正是 P2a（Linux 网络强制）要解决的。
-- SRT 与 nsjail 在其适用 case 上全部通过——DSH 相对竞品的核心差距在网络，不在文件边界。
+**P2a 网络强制的设计（@hourglass/sandbox-net）**：双层模型——OS 层 `bwrap --unshare-net`
+让沙箱持有独立 netns、一切直连被内核拒绝；策略层 host 侧 allowlist 代理经 bind-mounted
+unix socket + 沙箱内 TCP→unix 桥成为唯一出口。域名判定复用 policy-ci 的 NET-09 规范化
+（尾点/大小写/userinfo/NUL/IP literal/子域后缀）。空 allowlist=deny-all；代理死亡或非 bwrap
+rung 一律 fail-closed（SandboxUnavailableError，绝不裸奔直连）；`unrestricted` 模式零语义
+漂移且被审计记录（AUD-15）。诚实边界：原始 TCP/非 HTTP 无代理路径，被 OS 层整体阻断
+（阻断事实≠代理判定），manifest 如实标注。
+
+- DSH-BASE 的网络缺口仍如实 FAIL（插件前基线）；DSH-PLUGIN 9/9 = 插件的净增量价值。
+- SRT 与 nsjail 在其适用 case 上全部通过。
 - DSH 相对竞品的差异化优势（可观测性/策略回归）不可用黑盒安全分数比较，按计划分列呈现。
 
 ## 2. 版本与环境

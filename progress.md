@@ -44,3 +44,16 @@
 
 ### 交付状态
 - 已推送：https://github.com/Yoel-qin/hourglass（private，master）
+
+## 会话 1 续（2026-10-14，P2a）
+
+- **@hourglass/sandbox-net**（P2a 网络出口强制）交付：
+  - proxy.ts：unix socket HTTP 代理（CONNECT + absolute-URI），NET-09 域名判定，JSONL 决策日志
+  - confine.ts：bwrap argv 重写（--unshare-net + 3×bind + launcher）；非 bwrap/无分隔符 fail-closed
+  - index.ts：confine 方法替换（首调用 await 代理就绪）；unrestricted 零语义漂移 + AUD-15 记录；dispose 同步清理
+- driver/adapter 集成：DSH-PLUGIN 全 case 走插件管线；P3 → allowlist
+- 容器内调试修复：schemastery 无 .optional()；代理启动竞态（proxyReady await）；
+  dispose 清理时序（同步 rm）；httpRequest 忘导入（转发挂起根因）；测试断言改行为式
+  （cordis confine 每访问重绑定）
+- **最终结果：单测 8 files/72 tests 全绿；compare DSH-PLUGIN 9/9 全 PASS
+  （NET-02/03/05 服务端零 canary 记录），DSH-BASE 保持 4/3（缺口如实暴露）**

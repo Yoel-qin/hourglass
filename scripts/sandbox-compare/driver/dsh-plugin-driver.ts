@@ -14,6 +14,7 @@ import { LocalSandboxProvider } from '@deepseek-ai/dsh-sandbox-local'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import * as AuditPlugin from '@hourglass/sandbox-audit/src/index.ts'
+import * as NetPlugin from '@hourglass/sandbox-net/src/index.ts'
 
 interface PluginDriverRequest {
   commands: { callId: string; tool: string; arguments: Record<string, unknown> }[]
@@ -21,6 +22,11 @@ interface PluginDriverRequest {
   workspaceRoot: string
   ledgerPath: string
   cwd?: string
+  /** Optional network-egress policy: P3 cases run allowlisted, others omit it. */
+  net?: { mode: 'allowlist' | 'deny-all'; allowlist?: string[] }
+  /** ROB-01 supports: force a single-rung chain with a missing runner. */
+  runnerCommand?: string[]
+  forceChain?: string[]
 }
 
 interface PluginDriverResponse {
@@ -34,8 +40,18 @@ async function main(): Promise<void> {
   const request = JSON.parse(readFileSync(0, 'utf8')) as PluginDriverRequest
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
-  await ctx.plugin(LocalSandboxProvider, {})
+  await ctx.plugin(LocalSandboxProvider, request.runnerCommand === undefined ? {} : { runnerCommand: request.runnerCommand })
+  if (request.forceChain !== undefined) {
+    ;(ctx.sandbox as { internals?: { chain?: string[] } }).internals = { chain: request.forceChain }
+  }
   await ctx.plugin(AuditPlugin, { ledgerPath: request.ledgerPath })
+  if (request.net !== undefined) {
+    await ctx.plugin(NetPlugin, {
+      mode: request.net.mode,
+      allowlist: request.net.allowlist ?? [],
+      decisionLog: `${request.ledgerPath}.net-decisions.jsonl`,
+    })
+  }
   ctx.tools.register(defineTool({
     name: 'sh',
     description: 'sandboxed shell (hourglass compare driver)',

@@ -48,6 +48,16 @@
 - [x] 三层事实关联 schema + 诚实性规则（value.sandbox 提取、stderr 不升级、os_observation=unavailable）
 - [ ] Docker 内全量测试验证
 
+### 阶段 5：P2a Linux 网络出口强制 — status: complete
+目标：DSH-PLUGIN 的 NET-01..06/10 从 FAIL/缺口 变为真实强制（服务端证据）。
+- [x] @hourglass/sandbox-net 包：allowlist 代理（unix socket，CONNECT + absolute-URI，policy-ci 域名规范化）
+- [x] confine 装饰器：bwrap argv 附加 --unshare-net + 三 bind mount + launcher（代理 env + 沙箱内 TCP→unix 桥）
+- [x] fail-closed：非 bwrap rung 抛 SandboxUnavailableError；代理 socket 消失拒绝执行；空 allowlist=deny-all
+- [x] AUD-15：unrestricted 模式使用被记录（decision log）
+- [x] dsh-plugin-driver 集成（P3 → allowlist=[allow host]，NET-10 → 空）
+- [x] 单测 14 个（代理 allow/deny/invalid/deny-all/决策日志、argv 重写、fail-closed×2、插件 dispose×3）
+- [x] compare e2e：**DSH-PLUGIN 9/9 全 PASS**（NET-02/03/05 服务端零记录；FS/ROB/AUD 无回归）
+
 ### 阶段 4：报告与交付 — status: complete
 - [x] ADR-001（独立项目决策、扩展点、容器 privileged 依据）
 - [x] README（含 Testing hooks 章节）+ sandbox-compare README（适配映射）

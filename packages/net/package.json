@@ -1,0 +1,28 @@
+{
+  "name": "@hourglass/sandbox-net",
+  "version": "0.1.0",
+  "description": "Linux network-egress enforcement for DSH: bwrap --unshare-net for direct-connection blocking plus a host-side allowlist proxy reached over a bind-mounted unix socket; deny-by-default, fail-closed",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/schemastery": "workspace:~",
+    "@deepseek-ai/dsh-sandbox": "workspace:*",
+    "@hourglass/policy-ci": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/schemastery": "workspace:~",
+    "@deepseek-ai/dsh-sandbox": "workspace:*",
+    "@hourglass/policy-ci": "workspace:*"
+  }
+}

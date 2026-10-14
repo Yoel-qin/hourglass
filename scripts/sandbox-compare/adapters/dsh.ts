@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { CompareCase, SubjectId } from '../schema.ts'
 import { renderTemplate } from '../cases.ts'
+import { ALLOW_HOST } from '../net-service.ts'
 import type { RawExecution, RunEnv, SubjectAdapter } from './types.ts'
 
 const DSH_ROOT = process.env.HG_DSH_ROOT ?? '/opt/dsh'
@@ -88,28 +89,41 @@ export const dshPlugin: SubjectAdapter = {
   ...baseAdapter('DSH-PLUGIN'),
   supportsAudit: true,
   async execute(caseDefinition, env): Promise<RawExecution> {
-    if (caseDefinition.category !== 'aud') return baseAdapter('DSH-PLUGIN').execute(caseDefinition, env)
-    // AUD cases: real tool pipeline with the audit plugin; the ledger path is
-    // returned through the aux channel for verdict computation.
+    // The plugin subject always runs the full governance composition (audit
+    // ledger + optional net policy) through a real tool pipeline, so its
+    // results demonstrate the plugins' semantics end-to-end.
     const command = caseDefinition.action.kind === 'shell'
       ? renderTemplate(caseDefinition.action.command, env.context)
       : caseDefinition.action.argv.join(' ')
     const ledgerDir = mkdtempSync(join(tmpdir(), 'hourglass-aud-'))
     const ledgerPath = join(ledgerDir, 'audit.jsonl')
+    const net = caseDefinition.profile === 'P3-NET-ALLOWLIST'
+      ? { mode: 'allowlist' as const, allowlist: caseDefinition.id === 'NET-10' ? [] : [ALLOW_HOST] }
+      : undefined
     const request = {
       commands: [
         { callId: `aud-${caseDefinition.id}`, tool: 'sh', arguments: { command } },
-        { callId: `aud-${caseDefinition.id}-failing`, tool: 'sh-fails', arguments: {} },
+        ...(caseDefinition.category === 'aud'
+          ? [{ callId: `aud-${caseDefinition.id}-failing`, tool: 'sh-fails', arguments: {} }]
+          : []),
       ],
       mode: dshMode(caseDefinition.profile),
       workspaceRoot: env.context.workspace,
       ledgerPath,
       cwd: env.context.workspace,
+      ...(net === undefined ? {} : { net }),
+      ...(caseDefinition.id === 'ROB-01'
+        ? { runnerCommand: ['/nonexistent/hourglass-rob-runner'], forceChain: ['bwrap'] }
+        : {}),
     }
-    const raw = await runNode([PLUGIN_DRIVER], request, env.env, 60_000)
+    const raw = await runNode([PLUGIN_DRIVER], request, env.env, 90_000)
     return {
       ...raw,
-      notes: [`driver: ${PLUGIN_DRIVER}`, `ledger: ${ledgerPath}`],
+      notes: [
+        `driver: ${PLUGIN_DRIVER}`,
+        `ledger: ${ledgerPath}`,
+        ...(net === undefined ? [] : [`net: ${JSON.stringify(net)}`]),
+      ],
     }
   },
 }

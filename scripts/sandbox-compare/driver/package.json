@@ -10,6 +10,7 @@
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-sandbox-local": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*",
-    "@hourglass/sandbox-audit": "workspace:*"
+    "@hourglass/sandbox-audit": "workspace:*",
+    "@hourglass/sandbox-net": "workspace:*"
   }
 }

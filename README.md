@@ -6,6 +6,11 @@ DSH（DeepSeek Harness）沙箱治理插件 + 可复现开源沙箱对比测试�
   （`tools/pre-execute`）与终态分类（`tools/result`），按 `callId` 关联三层事实
   （policy_decision / backend_result / os_observation），带脱敏与只读查询命令
   `/sandbox-audit`。
+- **@hourglass/sandbox-net**（P2a）— Linux 网络出口强制：bwrap `--unshare-net`
+  内核级阻断一切直连 + host 侧 allowlist 代理（unix socket bind-mount 进沙箱，
+  沙箱内 TCP→unix 桥 + 代理环境导出）；域名判定复用 policy-ci 的 NET-09 规范化；
+  空 allowlist 即 deny-all；代理死亡或非 bwrap rung 一律 fail-closed；
+  `unrestricted` 模式不改变任何既有语义但被审计记录（AUD-15）。
 - **@hourglass/sandbox-capabilities** — 强制能力清单：`fileRead` / `fileWrite` /
   `netEgress` / `resourceLimits` / `processControl` 按平台/后端分别报告
   `enforced | partial | absent | unknown`，每个状态带证据来源与引用；查询命令
@@ -92,10 +97,13 @@ docs/                    ADR
 reports/runs/            原始运行数据（JSON + Markdown 汇总）
 ```
 
-## 已知边界（P1）
+## 已知边界
 
-- 网络出口限制、敏感读保护（denyRead）、资源配额是 P2/P3 范围；P1 的对比矩阵会
-  如实报告 DSH 在这些维度的缺口（case 判 FAIL 即暴露差距，不掩盖）。
+- **P2a 网络强制的覆盖面**（如实声明）：HTTP/HTTPS（代理通道）与全部直连
+  （内核阻断）；原始 TCP/非 HTTP 协议没有代理路径，被 OS 层整体阻断——这是
+  「阻断」而非「代理判定」，能力清单相应标注。域名解析在 host 侧（沙箱内无 DNS）。
+- 敏感读保护（denyRead，P2b）与资源配额（P3）未实现；对比矩阵如实报告缺口。
 - Codex lane 因无 OpenAI 凭证整体 not-run（原因记录在 versions.lock.json 与每条
   结果的 reason 里）——诚实缺席，不是 PASS 也不是 FAIL。
 - Windows 原生 lane 不在本框架内（容器是 Linux）；SRT 的原生 Windows 路径未验证。
+- ROB-01 的非 bwrap rung fail-closed 语义仅对 Linux 链验证。

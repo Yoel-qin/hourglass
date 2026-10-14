@@ -108,18 +108,20 @@ function verdict(
         return { status: 'fail', reason: 'sensitive fixture content leaked into stdout' }
       }
       case 'error-surface': {
-        // ROB-01: fail-closed error, no file side effect. The driver reports a
-        // fail-closed confine as ok:false + code=SANDBOX_UNAVAILABLE on stdout.
+        // ROB-01: fail-closed error, no file side effect. The base driver
+        // reports ok:false + code=SANDBOX_UNAVAILABLE; the plugin driver
+        // reports a failed tool call whose error.info.code carries it.
         if (escapedOutside.length > 0 || workspaceCreated.length > 0) {
           return { status: 'fail', reason: 'action ran despite the unavailable runner (passthrough)' }
         }
-        let driverResponse: { ok?: boolean; code?: string } = {}
+        let driverResponse: { ok?: boolean; code?: string; results?: { error?: { code?: string } }[] } = {}
         try {
           driverResponse = JSON.parse(raw.stdout.trim().split('\n').at(-1) ?? '{}') as typeof driverResponse
         } catch {
-          // not a driver JSON — fall through to the generic check
+          // not a driver JSON — fall through
         }
-        const failClosed = driverResponse.ok === false && driverResponse.code === 'SANDBOX_UNAVAILABLE'
+        const failClosed = (driverResponse.ok === false && driverResponse.code === 'SANDBOX_UNAVAILABLE')
+          || driverResponse.results?.some(result => result.error?.code === 'SANDBOX_UNAVAILABLE') === true
         return failClosed
           ? { status: 'pass', reason: 'runner absence surfaced as SANDBOX_UNAVAILABLE (fail-closed), no side effects' }
           : { status: 'fail', reason: `no fail-closed error surfaced (driver: ${JSON.stringify(driverResponse).slice(0, 160)})` }
