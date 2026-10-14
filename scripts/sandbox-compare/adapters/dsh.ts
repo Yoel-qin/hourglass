@@ -19,11 +19,13 @@ const DRIVER = join(DSH_ROOT, 'packages', 'hourglass', 'driver', 'dsh-driver.ts'
 const PLUGIN_DRIVER = join(DSH_ROOT, 'packages', 'hourglass', 'driver', 'dsh-plugin-driver.ts')
 
 /** Map compare profiles onto DSH SandboxMode values (vocabulary is file-effects only). */
-function dshMode(profile: CompareCase['profile']): 'read-only' | 'workspace-write' {
+function dshMode(profile: CompareCase['profile']): 'read-only' | 'workspace-write' | 'danger-full-access' {
   // P2-DENY-READ maps to workspace-write: DSH has no denyRead mechanism, so
   // FS-11/FS-12 under DSH report the honest gap (read succeeds) rather than
   // pretending a mechanism exists.
-  return profile === 'P0-READONLY' ? 'read-only' : 'workspace-write'
+  if (profile === 'P0-READONLY') return 'read-only'
+  if (profile === 'DANGER-FULL-ACCESS') return 'danger-full-access'
+  return 'workspace-write'
 }
 
 /** Per-case hard caps the rsrc plugin applies under P4-RESOURCE-LIMITS. */
@@ -151,7 +153,12 @@ export const dshPlugin: SubjectAdapter = {
     const ledgerPath = join(ledgerDir, 'audit.jsonl')
     const net = caseDefinition.profile === 'P3-NET-ALLOWLIST'
       ? { mode: 'allowlist' as const, allowlist: caseDefinition.id === 'NET-10' ? [] : [ALLOW_HOST] }
-      : undefined
+      : caseDefinition.id === 'AUD-15'
+        ? { mode: 'unrestricted' as const, allowlist: [] }
+        : caseDefinition.id === 'ROB-02'
+          ? { mode: 'allowlist' as const, allowlist: [ALLOW_HOST] }
+          : undefined
+    const netFail = caseDefinition.id === 'ROB-02'
     const quota = caseDefinition.profile === 'P4-RESOURCE-LIMITS' ? RES_QUOTAS[caseDefinition.id] : undefined
     const readDeny = caseDefinition.profile === 'P2-DENY-READ'
       ? [env.context.sensitive]
@@ -174,6 +181,7 @@ export const dshPlugin: SubjectAdapter = {
       ledgerPath,
       cwd: env.context.workspace,
       ...(net === undefined ? {} : { net }),
+      ...(netFail ? { netFail: true } : {}),
       ...(readDeny === undefined ? {} : { readDeny }),
       ...(quota === undefined ? {} : { rsrc: quota }),
       ...(caseDefinition.id === 'ROB-01'

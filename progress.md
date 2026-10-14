@@ -115,3 +115,9 @@
 - NET-14 两阶段 case：-OLD（策略前 spawn）/-NEW（新 confine）canary 区分判定
 - 发现：OLD 进程 0 到达——die-with-parent 使后台进程随沙箱销毁（无幸存越权路径）
 - v11（24×4=96）：DSH-PLUGIN 23/1；smoke-p2 gate 全量跑通（13×4=52，零 skip 零 blocked）
+
+## 会话 2 续 5（ROB-02 + AUD-15）
+
+- ROB-02 PASS：socket 定位修复（目标路径反查源路径）；代理死亡→全 confine 拒绝
+- AUD-15 PASS：danger 跳 confine 但审计完整；undefined 字段破坏 lossless JSON 校验（条件构造修复）
+- v13（26×4=104）：DSH-PLUGIN 25/1

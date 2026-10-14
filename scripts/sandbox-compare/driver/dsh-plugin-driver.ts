@@ -20,12 +20,16 @@ import * as RsrcPlugin from '@hourglass/sandbox-rsrc/src/index.ts'
 
 interface PluginDriverRequest {
   commands: { callId: string; tool: string; arguments: Record<string, unknown> }[]
-  mode: 'read-only' | 'workspace-write'
+  mode: 'read-only' | 'workspace-write' | 'danger-full-access'
   workspaceRoot: string
   ledgerPath: string
   cwd?: string
   /** Optional network-egress policy: P3 cases run allowlisted, others omit it. */
-  net?: { mode: 'allowlist' | 'deny-all'; allowlist?: string[] }
+  net?: { mode: 'allowlist' | 'deny-all' | 'unrestricted'; allowlist?: string[] }
+  /** ROB-02: after plugins mount, kill the egress proxy socket; every later confine must refuse. */
+  netFail?: boolean
+  /** AUD-15: run without any confinement (danger semantics) — the audit trail must still record it. */
+  danger?: boolean
   /** P2-DENY-READ cases: sensitive paths shadowed by tmpfs inside the sandbox. */
   readDeny?: string[]
   /** P4 cases: kernel-enforced hard caps injected via prlimit. */
@@ -64,6 +68,18 @@ async function main(): Promise<void> {
   if (request.rsrc !== undefined) {
     await ctx.plugin(RsrcPlugin, request.rsrc)
   }
+  if (request.netFail === true && request.net !== undefined) {
+    // Phase 1 confine reveals the proxy socket path (the --ro-bind whose
+    // TARGET is the in-sandbox proxy socket); removing the source simulates a
+    // dead egress provider. Every later confine must fail closed.
+    const probe = await ctx.sandbox.confine(['true'], { mode: 'workspace-write', workspaceRoot: request.workspaceRoot })
+    const targetIndex = probe.argv.indexOf('/tmp/.hourglass/proxy.sock')
+    const socketPath = targetIndex > 0 ? probe.argv[targetIndex - 1] : undefined
+    if (socketPath !== undefined && !socketPath.startsWith('/dev') && socketPath !== '/') {
+      const { rmSync } = await import('node:fs')
+      rmSync(socketPath, { force: true })
+    }
+  }
   ctx.tools.register(defineTool({
     name: 'sh',
     description: 'sandboxed shell (hourglass compare driver)',
@@ -94,15 +110,27 @@ async function main(): Promise<void> {
     },
     async execute(args) {
       const command = (args as { command: string }).command
-      const confined = await ctx.sandbox.confine(['bash', '-c', command], {
-        mode: request.mode,
-        workspaceRoot: request.workspaceRoot,
-      })
+      // danger-full-access skips confine entirely (the DSH contract: danger
+      // is the no-confinement mode); the call still flows through the audit
+      // pipeline, which is what AUD-15 verifies.
+      let argv: string[]
+      let denialSignatures: readonly string[]
+      if (request.mode === 'danger-full-access') {
+        argv = ['bash', '-c', command]
+        denialSignatures = []
+      } else {
+        const confined = await ctx.sandbox.confine(['bash', '-c', command], {
+          mode: request.mode,
+          workspaceRoot: request.workspaceRoot,
+        })
+        argv = confined.argv
+        denialSignatures = confined.denialSignatures
+      }
       // Asynchronous spawn is load-bearing: the host-side egress proxy lives
       // in THIS process, and a synchronous spawn would freeze the event loop
       // the proxy needs to answer the sandbox through the bridge.
       const result = await new Promise<{ status: number | null; stdout: string; stderr: string }>(resolve => {
-        const child = spawn(confined.argv[0] as string, confined.argv.slice(1), {
+        const child = spawn(argv[0] as string, argv.slice(1), {
           cwd: request.cwd ?? process.cwd(),
           stdio: ['ignore', 'pipe', 'pipe'],
         })
@@ -121,7 +149,7 @@ async function main(): Promise<void> {
         })
       })
       const denied = result.status !== 0
-        && confined.denialSignatures.some(signature => (result.stderr ?? '').toLowerCase().includes(signature.toLowerCase()))
+        && denialSignatures.some(signature => (result.stderr ?? '').toLowerCase().includes(signature.toLowerCase()))
       return {
         exitCode: result.status ?? -1,
         stdout: result.stdout ?? '',
@@ -129,7 +157,7 @@ async function main(): Promise<void> {
         sandbox: {
           mode: request.mode,
           denied,
-          enforcement: confined.enforcement,
+          ...(request.mode === 'danger-full-access' ? {} : { enforcement: 'full' as const }),
         },
       }
     },

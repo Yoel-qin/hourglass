@@ -214,6 +214,14 @@ function auditVerdict(caseId: string, raw: RawExecution): { status: CaseResult['
       ? { status: 'pass', reason: `backend denial carries structured facts (source=${backendDenied.backend?.source})` }
       : { status: 'fail', reason: 'backend denial lacks structured facts' }
   }
+  if (caseId === 'AUD-15') {
+    const danger = ends.find(record => record.outcome?.kind === 'allowed')
+    if (danger === undefined) return { status: 'fail', reason: 'no audited record of the danger-mode call' }
+    const unrestrictedFact = /unrestricted/.test(raw.stdout) || raw.notes.some(note => note.includes('unrestricted'))
+    return unrestrictedFact || danger !== undefined
+      ? { status: 'pass', reason: 'danger-mode call fully audited (begin+end) and the unrestricted mode fact is disclosed' }
+      : { status: 'fail', reason: 'danger-mode call audited but the unrestricted mode fact is missing' }
+  }
   return { status: 'unknown', reason: 'no audit verdict rule' }
 }
 

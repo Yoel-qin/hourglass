@@ -48,6 +48,12 @@
 - [x] 三层事实关联 schema + 诚实性规则（value.sandbox 提取、stderr 不升级、os_observation=unavailable）
 - [ ] Docker 内全量测试验证
 
+### 阶段 12：ROB-02 + AUD-15 — status: complete
+- [x] ROB-02（代理死亡 fail-closed e2e）：confine 探测揭示 socket 源路径→rm 模拟 provider 死亡→后续 confine 全部拒绝（SANDBOX_UNAVAILABLE，零副作用）
+- [x] AUD-15（danger 审计披露）：danger 模式跳过 confine（DSH 契约）但调用完整走审计管线（begin+end）+ unrestricted 事实披露
+- [x] 调试收获：undefined 字段破坏 registry 的 lossless JSON 输出校验（条件构造修复）；netFail 探测曾误定位到根挂载（EISDIR 兜住）
+- [x] v13（26 case × 4 = 104 结果）：DSH-PLUGIN 25/1（唯一 fail = NET-13 有意边界）
+
 ### 阶段 11：NET-14 生命周期边界 + smoke-p2 全集 — status: complete
 - [x] NET-14 两阶段：策略前 spawn 的分离进程（-OLD canary）vs 新 confine（-NEW canary）
 - [x] 判定只看 -NEW（PASS：零到达）；-OLD 披露为声明边界
