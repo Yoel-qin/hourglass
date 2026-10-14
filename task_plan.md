@@ -48,13 +48,13 @@
 - [x] 三层事实关联 schema + 诚实性规则（value.sandbox 提取、stderr 不升级、os_observation=unavailable）
 - [ ] Docker 内全量测试验证
 
-### 阶段 4：报告与交付 — status: in_progress
+### 阶段 4：报告与交付 — status: complete
 - [x] ADR-001（独立项目决策、扩展点、容器 privileged 依据）
-- [x] README（含 Testing hooks 章节）
-- [x] golden 文件生成（宿主 Node 22 strip-types 验证通过）
-- [ ] 容器内测试全绿
-- [ ] 对比报告生成
-- [ ] 最终报告（按计划第 11 节模板）
+- [x] README（含 Testing hooks 章节）+ sandbox-compare README（适配映射）
+- [x] golden 文件（13 决策）
+- [x] 容器内全绿：gate OK + 7 files/58 tests + compare 36 结果（AUD 全过）
+- [x] 最终报告 reports/final-report.md（按计划第 11 节模板）
+- [x] 推送 GitHub：https://github.com/Yoel-qin/hourglass
 
 ## 决策记录
 

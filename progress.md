@@ -1,32 +1,46 @@
 # Progress — 会话日志
 
-## 会话 1（2026-10-13）
+## 会话 1（2026-10-13 ~ 10-14）
 
-### 环境与侦察（P0-A，完成）
-- Docker 29.7.2；credential helper 问题用项目级 DOCKER_CONFIG=.docker-config 绕过（不动用户配置）
-- 容器能力实测：默认 seccomp 阻止 userns；--security-opt seccomp=unconfined 后 unshare -U 可用但 bwrap 仍失败；**--privileged 下 bwrap 完全可用** → 测试容器用 privileged（专用一次性容器，仅挂载 reports 输出目录）
-- DSH master d743267（本地=远程），工作区干净；Node v22.20.0 / pnpm 11.28.5
-- 竞品版本锁定（GitHub API 实测）：SRT v0.0.79 (d9aac20)、Codex 0.162.1 (092d3ac)、nsjail 3.6 (f784755)
-- 两个 Explore agent 完成 DSH 架构/沙箱/CI 侦察，关键事实入 findings.md：
-  - 工具事件：pre-execute/execute/post-execute（waterfall）+ result（emit）
-  - bash 工具把 sandbox 事实放 result.value.sandbox（tool-bash index.ts:170）
-  - 网络出口控制是 DSH 空白；SandboxMode 只管文件效果
-  - 外部插件接入：packages/*/* workspace + cordis.patch.yml insert
-  - e2e 驱动模式：new Context() + ctx.plugin(LocalSandboxProvider) + confine + spawnSync
+### P0-A 侦察（完成）
+- Docker 29.7.2；DOCKER_CONFIG 绕过 credential helper；容器 bwrap 需 --privileged
+- 容器网络真相：Docker Desktop 注入静态代理 127.0.0.1:10808（容器内不可达）→ 显式
+  build-arg 指向 host.docker.internal:10808；apt→USTC；GitHub→宿主预下载 vendor tarball
+  （容器内 git clone github.com 稳定失败）；npm→npmmirror 直连（剥离代理）
+- DSH master d743267 只读；2 个 Explore agent 完成全部侦察（findings.md）
+- 竞品锁定：SRT 0.0.79 / Codex 0.162.1 / nsjail 3.6
 
-### 代码产出
-- packages/audit（@hourglass/sandbox-audit）：types/redact/classify/ledger/index + 4 个测试文件 + REAL-composition loader 测试（cordis.yml + driver.ts + loader.spec.ts）
-  - backend 事实从 value.sandbox 提取（tool-bash 契约），meta 兜底；source 标签区分
-  - 分类器：结构化信号优先，纯 stderr 匹配不上沙箱拒绝
-- packages/capabilities（@hourglass/sandbox-capabilities）：静态矩阵（证据=DSH 源码 commit）+ 真实探测 + 诚实规则（enforced 需要 probe/test 证据，否则降 unknown）+ 测试
-- packages/policy-ci（@hourglass/policy-ci）：纯语义模型（mode 解析优先级 + containment + 域名规范化 NET-09）+ replay/diff + 合成 fixtures + golden 测试（golden 文件待容器内生成）
-- scripts/sandbox-compare/：schema、cases（19 个）、net-service（本地受控服务）、versions.lock.json、validate-versions-lock.ts、smoke-p1/p2.json、adapters（DSH-BASE/DSH-PLUGIN/SRT/NSJAIL/CODEX）、driver（dsh-driver.ts、dsh-plugin-driver.ts）、run.ts（执行器+判定+报告）
-- docker/Dockerfile（tools→dsh→test 三阶段）+ compose.yaml（privileged）+ entrypoint.sh + .dockerignore
+### 代码（完成）
+- packages/audit：审计账本 + 分类 + 脱敏 + 查询命令 + REAL loader 测试
+  - 关键契约：bash 消费者把 sandbox 事实放 result.value.sandbox；denied 优先于 isError 判定
+- packages/capabilities：静态矩阵 + 探测 + 诚实规则
+- packages/policy-ci：语义模型 + 回放 diff + 合成 fixture + golden（13 决策）
+- scripts/sandbox-compare：19 case、5 adapter、2 driver、本地 net 服务、版本锁 gate、
+  smoke-p1/p2、零跳过 gate
+- docker：三阶段镜像 + privileged compose + entrypoint（gates/unit/compare/run-all）
 
-### 进行中
-- Docker 镜像构建后台运行中（任务 bmap21gr5）
+### 验证（完成，容器内实测）
+- versions-lock gate：OK sha256=bffbc35f…
+- 单测：**Test Files 7 passed (7) / Tests 58 passed (58)**（含 REAL-composition loader）
+- 对比矩阵 smoke-p1（36 结果，run-…T011836Z）：
+  | subject | pass | fail | unsupported |
+  |---|---|---|---|
+  | DSH-BASE | 4 | 3 | 2 |
+  | DSH-PLUGIN | 6 | 3 | 0 |
+  | SRT | 6 | 0 | 3 |
+  | NSJAIL | 6 | 0 | 3 |
+  - DSH-PLUGIN AUD-02/AUD-11 PASS（分类区分 + backend 结构化事实）
+  - 6 个 fail 全部是 DSH 无网络隔离的真实缺口（NET-02/03/05 × BASE/PLUGIN）
+  - DSH-PLUGIN 与 DSH-BASE 的 FS/ROB 完全一致（零语义漂移）
 
-### 待办
-- golden 文件生成（policy-ci baseline-replay.golden.json）
-- 容器内：pnpm install 融合、跑单测、跑 loader smoke、跑 compare
-- README、ADR-001、最终报告
+### 关键修复历程（容器内调试）
+1. tsconfig extends 层级（容器内多一层 hourglass → ../../../）
+2. strip-types 不支持参数属性（AuditLedgerError/AuditLedger 两处）
+3. defineTool parameters 形状（字段平铺 + 字段内 required:true）
+4. AUD 命令模板去掉 `|| true`（否则非零 exit 被吞、denied 检测失效）
+5. bwrap ephemeral tmpfs /tmp → 测试 fixture 基目录移到 /root（DSH e2e 同款规避）
+6. `docker build | tail` 掩盖退出码 → 前台构建 + BUILD_EXIT 检查
+7. pnpm install 层剥离代理直连 npmmirror
+
+### 交付状态
+- 已推送：https://github.com/Yoel-qin/hourglass（private，master）
