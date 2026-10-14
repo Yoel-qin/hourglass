@@ -11,7 +11,7 @@
 
 import { createHash } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 import { validate as validateLock, LOCK_PATH } from './validate-versions-lock.ts'
 import { startNetService, etcHostsLines, ALLOW_HOST, DENY_HOST } from './net-service.ts'
@@ -57,16 +57,22 @@ function diffSnapshots(before: DirectorySnapshot, after: DirectorySnapshot): { c
   return { created, modified, deleted }
 }
 
-function prepareFixtures(base: string): CaseContext & { cleanup: () => void } {
+function prepareFixtures(base: string): CaseContext & { cleanup: () => void; reset: () => void } {
   const workspace = join(base, 'workspace')
   const outside = join(base, 'outside')
   const sensitive = join(base, 'synthetic-home', '.synthetic-secrets')
-  for (const dir of [workspace, outside, sensitive]) mkdirSync(dir, { recursive: true })
-  // Pre-existing outside files (FS-03/04/06 targets) and readable workspace fixtures.
-  writeFileSync(join(outside, 'existing.txt'), 'original-content\n')
-  writeFileSync(join(outside, 'victim.txt'), 'do-not-delete\n')
-  writeFileSync(join(workspace, 'readable.txt'), 'readable workspace fixture\n')
-  writeFileSync(join(sensitive, 'synthetic-key.pem'), '-----BEGIN SYNTHETIC TEST KEY-----\nDSH_SYNTHETIC_CANARY_never-real\n-----END SYNTHETIC TEST KEY-----\n')
+  const seed = (): void => {
+    for (const dir of [workspace, outside, sensitive]) {
+      rmSync(dir, { recursive: true, force: true })
+      mkdirSync(dir, { recursive: true })
+    }
+    // Pre-existing outside files (FS-03/04/06 targets) and readable workspace fixtures.
+    writeFileSync(join(outside, 'existing.txt'), 'original-content\n')
+    writeFileSync(join(outside, 'victim.txt'), 'do-not-delete\n')
+    writeFileSync(join(workspace, 'readable.txt'), 'readable workspace fixture\n')
+    writeFileSync(join(sensitive, 'synthetic-key.pem'), '-----BEGIN SYNTHETIC TEST KEY-----\nDSH_SYNTHETIC_CANARY_never-real\n-----END SYNTHETIC TEST KEY-----\n')
+  }
+  seed()
   return {
     workspace,
     outside,
@@ -75,6 +81,10 @@ function prepareFixtures(base: string): CaseContext & { cleanup: () => void } {
     denyUrl: '',
     canary: '',
     port: 0,
+    // Reset before EVERY (subject × case) pair: subjects share the fixture
+    // tree, and one subject's leftover file would desensitize the next
+    // subject's snapshot diff.
+    reset: seed,
     cleanup: () => rmSync(base, { recursive: true, force: true }),
   }
 }
@@ -101,10 +111,22 @@ function verdict(
         if (denyRequests === 0) return { status: 'pass', reason: 'deny endpoint received no request carrying the canary' }
         return { status: 'fail', reason: `deny endpoint received ${denyRequests} canary request(s)` }
       case 'error-message': {
-        // FS-11/FS-12: the sensitive content must not be obtainable.
-        const leaked = /SYNTHETIC TEST KEY/i.test(raw.stdout)
-        if (!leaked && raw.exitCode !== 0) return { status: 'pass', reason: 'sensitive content not obtained; command failed' }
-        if (!leaked) return { status: 'fail', reason: `no leak but exit=${String(raw.exitCode)} (expected a denial error)` }
+        // FS-11/FS-12: the sensitive content must not be obtainable. The
+        // plugin driver always exits 0 with a JSON envelope; the inner
+        // command's outcome lives in results[0] (a thrown tool error or the
+        // sh value's exitCode/stderr).
+        let inner: { isError?: boolean; error?: { message?: string }; stdout?: string } | undefined
+        try {
+          const envelope = JSON.parse(raw.stdout.trim().split('\n').at(-1) ?? '{}') as { results?: typeof inner[] }
+          inner = envelope.results?.[0]
+        } catch {
+          inner = undefined
+        }
+        const innerFailed = inner === undefined ? raw.exitCode !== 0 : inner.isError === true || /No such file|not permitted|denied|ENOENT/i.test(`${inner.error?.message ?? ''}${inner.stdout ?? ''}`)
+        const observed = inner?.stdout ?? raw.stdout
+        const leaked = /SYNTHETIC TEST KEY/i.test(observed)
+        if (!leaked && innerFailed) return { status: 'pass', reason: 'sensitive content not obtained; command failed' }
+        if (!leaked) return { status: 'fail', reason: 'no leak but the command neither failed observably nor was denied' }
         return { status: 'fail', reason: 'sensitive fixture content leaked into stdout' }
       }
       case 'error-surface': {
@@ -182,7 +204,9 @@ async function main(): Promise<void> {
   const subjectsFlag = args.find(arg => arg.startsWith('--subjects='))
   const smokeFile = smokeFlag.split('=')[1] as string
   const smokeDir = new URL('.', import.meta.url).pathname
-  const smoke = JSON.parse(readFileSync(join(smokeDir, smokeFile), 'utf8')) as { cases: string[]; subjects: SubjectId[] }
+  const smoke = smokeFile === 'all'
+    ? { cases: CASES.map(definition => definition.id), subjects: ['DSH-BASE', 'DSH-PLUGIN', 'SRT', 'NSJAIL'] as SubjectId[] }
+    : JSON.parse(readFileSync(join(smokeDir, smokeFile), 'utf8')) as { cases: string[]; subjects: SubjectId[] }
   const lockRaw = readFileSync(LOCK_PATH)
   const lockViolations = validateLock(JSON.parse(lockRaw.toString('utf8')))
   if (lockViolations.length > 0) {
@@ -198,10 +222,15 @@ async function main(): Promise<void> {
   // files placed there would vanish with the sandbox instead of being denied
   // (the same reason DSH's own bwrap e2e uses HOME-based workspaces).
   const base = join(homedir(), 'hourglass-compare', runId)
-  // Synthetic test domains must resolve before any subject runs (the container
-  // is ours; public DNS is never involved).
+  // Synthetic test domains must resolve before any subject runs. They map to
+  // the container's eth0 address (not loopback): SRT refuses loopback
+  // upstreams as SSRF protection, so allow-path cases need a non-loopback
+  // target the sandbox proxies can reach.
+  const interfaces = networkInterfaces()
+  const eth0 = interfaces['eth0']?.find(entry => entry.family === 'IPv4')
+  const containerIp = eth0?.address ?? '127.0.0.1'
   try {
-    appendFileSync('/etc/hosts', `${etcHostsLines(net.port)}\n`)
+    appendFileSync('/etc/hosts', `${etcHostsLines(containerIp, net.port)}\n`)
   } catch (error) {
     console.error(`[compare] cannot write /etc/hosts (${error instanceof Error ? error.message : String(error)}); name-based cases will fail`)
   }
@@ -251,6 +280,7 @@ async function main(): Promise<void> {
         })
         continue
       }
+      fixtures.reset()
       const outsideBefore = snapshot(fixtures.outside)
       const workspaceBefore = snapshot(fixtures.workspace)
       const denyBefore = net.requestsFor(DENY_HOST).length

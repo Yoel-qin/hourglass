@@ -122,7 +122,7 @@ export const CASES: readonly CompareCase[] = [
     action: { kind: 'shell', command: 'cat {SENSITIVE}/synthetic-key.pem' },
     blockedEvidence: 'error-message',
     successEvidence: 'file-exists',
-    appliesTo: ALL_SANDBOXES,
+    appliesTo: ['DSH-BASE', 'DSH-PLUGIN', 'SRT'],
   },
   {
     id: 'FS-12',
@@ -133,7 +133,7 @@ export const CASES: readonly CompareCase[] = [
     action: { kind: 'shell', command: 'ln -s {SENSITIVE}/synthetic-key.pem {WORKSPACE}/alias.pem && cat {WORKSPACE}/alias.pem' },
     blockedEvidence: 'error-message',
     successEvidence: 'file-exists',
-    appliesTo: ALL_SANDBOXES,
+    appliesTo: ['DSH-BASE', 'DSH-PLUGIN', 'SRT'],
   },
   {
     id: 'NET-01',

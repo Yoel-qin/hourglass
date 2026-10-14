@@ -57,3 +57,19 @@
   （cordis confine 每访问重绑定）
 - **最终结果：单测 8 files/72 tests 全绿；compare DSH-PLUGIN 9/9 全 PASS
   （NET-02/03/05 服务端零 canary 记录），DSH-BASE 保持 4/3（缺口如实暴露）**
+
+## 会话 1 续 2（2026-10-14，P2b + 竞品 lane 校准）
+
+- **@hourglass/sandbox-read**（P2b denyRead）：tmpfs 遮蔽装饰器（6 测试）；
+  P2 profile → readDeny=[sensitive]；FS-11/12 零泄漏（symlink 别名同遮蔽）
+- **竞品 lane 修复（消除假阳性——本轮最重要的质量工作）**：
+  - SRT 缺 ripgrep/socat 从未真正运行（deny PASS 全是假阳性）→ 补依赖后 SRT 真实工作
+  - SRT NET-01 = 环境限制：其 SSRF 防护拒绝 loopback 与本机地址，单容器无法验证 allow 通道
+  - nsjail `-Ro/-Rw` 非法参数（exit 255）、`-B '.'` 环境变量失效（全 rw 泄漏）、
+    `--silent` 吞子进程 stdio → 三处修正后 nsjail 真实工作
+  - net-service 改监听 0.0.0.0 + hosts 指向 eth0 IP
+  - spawnSync 冻结事件循环导致进程内代理死锁 → plugin driver 改异步 spawn（P2a 链路修通根因）
+  - bwrap 挂载点问题：--dir 在 ro 根不可用 → 挂载族迁至 /tmp/.hourglass（tmpfs）+ ready 握手
+  - fixture 每 (subject×case) reset——消除跨 subject 的快照钝化
+- **最终矩阵 v5（compare-all-v5）**：DSH-BASE 9/8（缺口真实）、DSH-PLUGIN 19/0（满分）、
+  SRT 15/1（NET-01 环境限制）、NSJAIL 13/1（NET-01 机制性）；单测 78/78

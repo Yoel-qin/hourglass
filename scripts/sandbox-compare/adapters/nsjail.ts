@@ -11,13 +11,13 @@ import type { CompareCase } from '../schema.ts'
 import { renderTemplate } from '../cases.ts'
 import type { RawExecution, RunEnv, SubjectAdapter } from './types.ts'
 
-function nsjailArgv(caseDefinition: CompareCase, command: string): string[] {
-  const argv = ['nsjail', '--mode', 'o', '--chroot', '/', '--silent', '--iface_no_lo']
-  // Everything read-only by default…
-  argv.push('-Ro', '/', '--proc', 'rw', '-Ro', '/proc')
+function nsjailArgv(caseDefinition: CompareCase, command: string, workspace: string): string[] {
+  // No --silent here: nsjail's own logs go to stderr (ignored by verdicts),
+  // but silencing also swallows the sandboxed process's stdio.
+  const argv = ['nsjail', '--mode', 'o', '-R', '/', '--proc_rw']
   if (caseDefinition.profile !== 'P0-READONLY') {
-    // …then re-bind the workspace and tmp writable.
-    argv.push('-Rw', process.env.HG_WORKSPACE ?? '.', '-Rw', '/tmp')
+    // Re-bind the workspace and tmp writable on top of the read-only root.
+    argv.push('-B', workspace, '-B', '/tmp')
   }
   argv.push('--', '/bin/bash', '-c', command)
   return argv
@@ -56,8 +56,8 @@ export const nsjail: SubjectAdapter = {
       ? renderTemplate(caseDefinition.action.command, env.context)
       : caseDefinition.action.argv.join(' ')
     const raw = await runCommand(
-      nsjailArgv(caseDefinition, command),
-      { HG_PORT: String(env.context.port), HG_CANARY: env.context.canary, HG_WORKSPACE: env.context.workspace, ...env.env },
+      nsjailArgv(caseDefinition, command, env.context.workspace),
+      { HG_PORT: String(env.context.port), HG_CANARY: env.context.canary, ...env.env },
       45_000,
     )
     return {

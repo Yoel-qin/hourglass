@@ -100,6 +100,9 @@ export const dshPlugin: SubjectAdapter = {
     const net = caseDefinition.profile === 'P3-NET-ALLOWLIST'
       ? { mode: 'allowlist' as const, allowlist: caseDefinition.id === 'NET-10' ? [] : [ALLOW_HOST] }
       : undefined
+    const readDeny = caseDefinition.profile === 'P2-DENY-READ'
+      ? [env.context.sensitive]
+      : undefined
     const request = {
       commands: [
         { callId: `aud-${caseDefinition.id}`, tool: 'sh', arguments: { command } },
@@ -112,6 +115,7 @@ export const dshPlugin: SubjectAdapter = {
       ledgerPath,
       cwd: env.context.workspace,
       ...(net === undefined ? {} : { net }),
+      ...(readDeny === undefined ? {} : { readDeny }),
       ...(caseDefinition.id === 'ROB-01'
         ? { runnerCommand: ['/nonexistent/hourglass-rob-runner'], forceChain: ['bwrap'] }
         : {}),

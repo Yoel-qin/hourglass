@@ -48,6 +48,12 @@
 - [x] 三层事实关联 schema + 诚实性规则（value.sandbox 提取、stderr 不升级、os_observation=unavailable）
 - [ ] Docker 内全量测试验证
 
+### 阶段 6：P2b 敏感读保护 + 竞品 lane 校准 — status: complete
+- [x] @hourglass/sandbox-read：tmpfs 遮蔽（直接读与 symlink 别名同遮蔽）；非 bwrap fail-closed；默认空集（opt-in）
+- [x] FS-11/12：DSH-PLUGIN 零泄漏 PASS；DSH-BASE 泄漏 FAIL（真实缺口）；SRT PASS（denyRead）；nsjail unsupported（无机制）
+- [x] 竞品 lane 假阳性清除：SRT 依赖补齐（ripgrep/socat）、nsjail 参数修正（-R/-B/--silent）、spawnSync 死锁修复
+- [x] 最终矩阵 v5：DSH-PLUGIN 19/0；剩余 fail 全部可解释（基线缺口/环境限制/机制差异）
+
 ### 阶段 5：P2a Linux 网络出口强制 — status: complete
 目标：DSH-PLUGIN 的 NET-01..06/10 从 FAIL/缺口 变为真实强制（服务端证据）。
 - [x] @hourglass/sandbox-net 包：allowlist 代理（unix socket，CONNECT + absolute-URI，policy-ci 域名规范化）

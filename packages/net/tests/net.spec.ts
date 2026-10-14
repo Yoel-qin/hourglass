@@ -131,8 +131,9 @@ describe('confine rewriting', () => {
     expect(separator).toBeGreaterThan(0)
     const bwrapPart = wrapped.argv.slice(0, separator)
     expect(bwrapPart).toContain('--unshare-net')
-    expect(bwrapPart.join(' ')).toContain('--ro-bind /tmp/p.sock /.hourglass/proxy.sock')
-    expect(wrapped.argv.slice(separator + 1)).toEqual(['/bin/sh', '/.hourglass/launch.sh', 'bash', '-c', 'echo hi'])
+    expect(bwrapPart.join(' ')).toContain('--dir /tmp/.hourglass')
+    expect(bwrapPart.join(' ')).toContain('--ro-bind /tmp/p.sock /tmp/.hourglass/proxy.sock')
+    expect(wrapped.argv.slice(separator + 1)).toEqual(['/bin/sh', '/tmp/.hourglass/launch.sh', 'bash', '-c', 'echo hi'])
     expect(wrapped.enforcement).toBe(confined.enforcement)
     expect(wrapped.denialSignatures).toBe(confined.denialSignatures)
   })
@@ -152,13 +153,14 @@ describe('confine rewriting', () => {
     expect(script).toContain('HTTP_PROXY=http://127.0.0.1:3128')
     expect(script).toContain('NO_PROXY=localhost,127.0.0.1')
     expect(script).toContain('exec "$@"')
-    expect(script).toContain('node /.hourglass/bridge.mjs')
+    expect(script).toContain('node /tmp/.hourglass/bridge.mjs')
   })
 
   it('the bridge relays loopback TCP to the bind-mounted unix socket', () => {
     const script = bridgeScript()
-    expect(script).toContain('connect("/.hourglass/proxy.sock")')
-    expect(script).toContain("server.listen(3128, '127.0.0.1')")
+    expect(script).toContain('connect("/tmp/.hourglass/proxy.sock")')
+    expect(script).toContain("server.listen(3128, '127.0.0.1',")
+    expect(script).toContain("writeFileSync(\"/tmp/.hourglass-ready\"")
   })
 })
 
@@ -192,7 +194,7 @@ describe('hourglass-sandbox-net plugin', () => {
     try {
       const confined = await ctx.sandbox.confine(['bwrap', '--', 'true'])
       expect(confined.argv).toContain('--unshare-net')
-      expect(confined.argv).toContain('/.hourglass/launch.sh')
+      expect(confined.argv).toContain('/tmp/.hourglass/launch.sh')
       // Fail-closed when the proxy socket vanished (simulated dead proxy).
       const runtimeSocket = confined.argv[confined.argv.indexOf('--ro-bind') + 1]
       rmSync(runtimeSocket, { force: true })

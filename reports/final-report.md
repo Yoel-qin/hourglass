@@ -1,6 +1,6 @@
-# hourglass 最终报告（P0 + P1 + P2a 交付）
+# hourglass 最终报告（P0 + P1 + P2a + P2b 交付）
 
-> 更新：2026-10-14（完全自动模式会话 1；P2a 网络强制加入后）
+> 更新：2026-10-14（完全自动模式会话 1；P2a 网络强制 + P2b 读保护 + 竞品 lane 校准后）
 > 计划依据：《DeepSeek-Harness-沙箱插件开发与竞品对比测试计划》
 > 代码：https://github.com/Yoel-qin/hourglass（master）
 
@@ -17,14 +17,33 @@
 - **Policy CI**（@hourglass/policy-ci）：合成 fixture 的纯函数回放 + 决策 diff（含 NET-09 域名规范化
   13 边界用例），CI 零网络/零模型/零真实会话。
 
-**对比结论（smoke-p1 矩阵，全部容器内真实副作用判定；P2a 后 DSH-PLUGIN 满分）：**
+**对比结论（全量 19 case × 4 subject，compare-all-v5；全部容器内真实副作用判定）：**
 
-| 维度 | DSH-BASE | DSH-PLUGIN（P2a 后） | SRT 0.0.79 | nsjail 3.6 |
+| 维度 | DSH-BASE | DSH-PLUGIN（P2a+P2b） | SRT 0.0.79 | nsjail 3.6 |
 |---|---|---|---|---|
-| 文件写边界（FS-02/05/06） | ✅ bwrap 全拦 | ✅ 无回归 | ✅ | ✅ |
-| fail-closed（ROB-01） | ✅ SANDBOX_UNAVAILABLE | ✅（含网络层 fail-closed） | n/a | n/a |
-| 网络出口（NET-02/03/05） | ❌ 全部放行（真实缺口） | ✅ **9/9 全 PASS：服务端零 canary 记录** | ✅ 代理 allowlist 全拦 | ✅ net-ns 全断 |
-| 审计分类（AUD-02/11） | n/a | ✅ | n/a（不可比） | n/a（不可比） |
+| 文件写边界（FS-01..06/10） | ✅ | ✅ 无回归 | ✅ | ✅ |
+| **敏感读保护（FS-11/12）** | ❌ 内容泄漏（真实缺口） | ✅ **零泄漏**（tmpfs 遮蔽，含 symlink 别名） | ✅ denyRead | unsupported（无机制） |
+| 网络出口 deny（NET-02..06/10） | ❌ 全放行（真实缺口） | ✅ 服务端零记录 | ✅ 代理 allowlist | ✅ netns 全断 |
+| 网络出口 allow（NET-01） | ✅（无隔离自然可达） | ✅ 经代理放行 | ⚠️ 环境限制* | ⚠️ 机制性** |
+| fail-closed（ROB-01） | ✅ | ✅（含 net/read 层） | n/a | n/a |
+| 审计分类（AUD-02/11） | n/a | ✅ | n/a | n/a |
+
+\* SRT 的 SSRF 防护拒绝 loopback 与本机地址作为上游——单容器环境无法验证其 allow 通道；
+其 deny 语义已由 NET-02..06 真实验证（此限制属环境不可比，非 SRT 缺陷）。
+\*\* nsjail 的隔离粒度是命名空间级（全断），无法表达域名 allowlist——机制差异，如实呈现。
+
+**总分：DSH-BASE 9/8/2、DSH-PLUGIN 19/0/0（满分）、SRT 15/1/3、NSJAIL 13/1/5。**
+DSH-PLUGIN 相对 DSH-BASE 的净增量：网络出口（6 case）+ 敏感读（2 case）+ 审计（2 case），
+且文件边界与 fail-closed 零回归。
+
+**P2b 读保护设计（@hourglass/sandbox-read）**：bwrap `--tmpfs` 把 deny-read 路径在沙箱内
+遮蔽为空挂载——直接读与 symlink/硬链接别名（解析后落在遮蔽路径上）同样不可获得内容；
+默认空集（opt-in，不改变既有行为）；非 bwrap rung fail-closed。
+
+**竞品 lane 校准（消除假阳性）**：SRT 曾因容器缺 ripgrep/socat 从未真正运行（其 deny PASS
+曾是启动失败的假象）——补依赖后 SRT 真实工作；nsjail 修正三处参数错误（`-Ro/-Rw` 非法、
+`-B` 环境变量失效、`--silent` 吞子进程 stdio）；测试服务改监听 0.0.0.0。所有 subject 的
+判定均基于真实副作用观察（文件快照差分 + 服务端 canary 记录）。
 
 **P2a 网络强制的设计（@hourglass/sandbox-net）**：双层模型——OS 层 `bwrap --unshare-net`
 让沙箱持有独立 netns、一切直连被内核拒绝；策略层 host 侧 allowlist 代理经 bind-mounted

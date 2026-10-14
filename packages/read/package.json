@@ -1,0 +1,26 @@
+{
+  "name": "@hourglass/sandbox-read",
+  "version": "0.1.0",
+  "description": "Sensitive-read protection for the DSH bwrap rung: deny-listed paths are shadowed by empty tmpfs mounts inside the sandbox, so neither direct reads nor symlink aliases can obtain their content; fail-closed on non-bwrap rungs",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/schemastery": "workspace:~",
+    "@deepseek-ai/dsh-sandbox": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/schemastery": "workspace:~",
+    "@deepseek-ai/dsh-sandbox": "workspace:*"
+  }
+}

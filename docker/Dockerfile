@@ -28,6 +28,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       bubblewrap \
       git \
       curl \
+      ripgrep \
+      socat \
       ca-certificates \
       xz-utils \
       python3 \

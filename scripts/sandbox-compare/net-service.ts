@@ -50,7 +50,10 @@ export async function startNetService(port = 0): Promise<NetService> {
       response.end('hourglass-test-service\n')
     })
   })
-  await new Promise<void>(resolve => server.listen(port, '127.0.0.1', resolve))
+  // 0.0.0.0, not loopback: some sandboxes (notably SRT) refuse loopback
+  // upstreams as SSRF protection, so allow-path cases must resolve to a
+  // non-loopback container address.
+  await new Promise<void>(resolve => server.listen(port, '0.0.0.0', resolve))
   const address = server.address()
   if (address === null || typeof address === 'string') throw new Error('net service did not bind an tcp port')
   const boundPort = address.port
@@ -66,11 +69,11 @@ export async function startNetService(port = 0): Promise<NetService> {
 }
 
 /** /etc/hosts entries the container needs for the synthetic test domains. */
-export function etcHostsLines(port: number): string {
+export function etcHostsLines(ip: string, port: number): string {
   return [
     '# hourglass sandbox-compare synthetic domains',
-    `127.0.0.1 ${ALLOW_HOST}`,
-    `127.0.0.1 ${DENY_HOST}`,
+    `${ip} ${ALLOW_HOST}`,
+    `${ip} ${DENY_HOST}`,
     `# service port for reference: ${port}`,
     `# host: ${hostname()}`,
   ].join('\n')
