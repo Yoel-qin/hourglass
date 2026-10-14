@@ -16,6 +16,7 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import * as AuditPlugin from '@hourglass/sandbox-audit/src/index.ts'
 import * as NetPlugin from '@hourglass/sandbox-net/src/index.ts'
 import * as ReadPlugin from '@hourglass/sandbox-read/src/index.ts'
+import * as RsrcPlugin from '@hourglass/sandbox-rsrc/src/index.ts'
 
 interface PluginDriverRequest {
   commands: { callId: string; tool: string; arguments: Record<string, unknown> }[]
@@ -27,6 +28,8 @@ interface PluginDriverRequest {
   net?: { mode: 'allowlist' | 'deny-all'; allowlist?: string[] }
   /** P2-DENY-READ cases: sensitive paths shadowed by tmpfs inside the sandbox. */
   readDeny?: string[]
+  /** P4 cases: kernel-enforced hard caps injected via prlimit. */
+  rsrc?: { nproc?: number; asBytes?: number; cpuSeconds?: number; fsizeBytes?: number; nofile?: number }
   /** ROB-01 supports: force a single-rung chain with a missing runner. */
   runnerCommand?: string[]
   forceChain?: string[]
@@ -57,6 +60,9 @@ async function main(): Promise<void> {
   }
   if (request.readDeny !== undefined && request.readDeny.length > 0) {
     await ctx.plugin(ReadPlugin, { denyRead: request.readDeny })
+  }
+  if (request.rsrc !== undefined) {
+    await ctx.plugin(RsrcPlugin, request.rsrc)
   }
   ctx.tools.register(defineTool({
     name: 'sh',

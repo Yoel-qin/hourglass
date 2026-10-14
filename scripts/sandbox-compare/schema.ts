@@ -29,7 +29,7 @@ export interface CompareCase {
   /** The ideal security outcome for this case under this profile. */
   readonly expectation: 'blocked' | 'succeeds'
   /** What the outside world must observe for the case to count as blocked. */
-  readonly blockedEvidence: 'file-must-not-exist' | 'file-content-unchanged' | 'no-server-request' | 'error-surface'
+  readonly blockedEvidence: 'file-must-not-exist' | 'file-content-unchanged' | 'no-server-request' | 'error-surface' | 'limit-enforced'
   /** What a legitimately succeeding case must show. */
   readonly successEvidence: 'file-exists' | 'server-request-received' | 'audit-records' | 'error-message'
   readonly appliesTo: readonly SubjectId[]

@@ -1,4 +1,4 @@
-# hourglass 最终报告（P0 + P1 + P2a + P2b 交付）
+# hourglass 最终报告（P0 + P1 + P2a + P2b + P3 交付）
 
 > 更新：2026-10-14（完全自动模式会话 1；P2a 网络强制 + P2b 读保护 + 竞品 lane 校准后）
 > 计划依据：《DeepSeek-Harness-沙箱插件开发与竞品对比测试计划》
@@ -32,7 +32,9 @@
 其 deny 语义已由 NET-02..06 真实验证（此限制属环境不可比，非 SRT 缺陷）。
 \*\* nsjail 的隔离粒度是命名空间级（全断），无法表达域名 allowlist——机制差异，如实呈现。
 
-**总分：DSH-BASE 9/8/2、DSH-PLUGIN 19/0/0（满分）、SRT 15/1/3、NSJAIL 13/1/5。**
+**P3 资源配额（@hourglass/sandbox-rsrc + v8 矩阵）**：prlimit 硬上限（RLIMIT_AS/CPU/FSIZE/NOFILE）注入命令前缀，内核强制。RES-03（内存）/RES-06（fd）：DSH-PLUGIN 真实拒绝超限（PASS）；nsjail 原生 rlimit 同效（其 --rlimit_as 单位为 MB）；DSH-BASE 无强制（FAIL=缺口）；SRT 无 rlimit 配置面（unsupported）。**RES-04（进程数）：userns 内 root 持 CAP_SYS_ADMIN 使 RLIMIT_NPROC 被内核豁免——DSH-PLUGIN/nsjail/DSH-BASE 三方一致无法硬强制，如实 FAIL**（机制边界：进程数硬限制需 cgroup pids，属后续工作）。
+
+**总分（v8，22 case × 4）：DSH-BASE 9/11/2、DSH-PLUGIN 21/1/0、SRT 15/1/6、NSJAIL 15/2/5。**
 DSH-PLUGIN 相对 DSH-BASE 的净增量：网络出口（6 case）+ 敏感读（2 case）+ 审计（2 case），
 且文件边界与 fail-closed 零回归。
 

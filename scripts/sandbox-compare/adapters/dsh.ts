@@ -10,7 +10,7 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { CompareCase, SubjectId } from '../schema.ts'
-import { renderTemplate } from '../cases.ts'
+import { renderAction } from '../cases.ts'
 import { ALLOW_HOST } from '../net-service.ts'
 import type { RawExecution, RunEnv, SubjectAdapter } from './types.ts'
 
@@ -24,6 +24,13 @@ function dshMode(profile: CompareCase['profile']): 'read-only' | 'workspace-writ
   // FS-11/FS-12 under DSH report the honest gap (read succeeds) rather than
   // pretending a mechanism exists.
   return profile === 'P0-READONLY' ? 'read-only' : 'workspace-write'
+}
+
+/** Per-case hard caps the rsrc plugin applies under P4-RESOURCE-LIMITS. */
+const RES_QUOTAS: Record<string, { nproc?: number; asBytes?: number; nofile?: number }> = {
+  'RES-03': { asBytes: 100 * 1024 * 1024 },
+  'RES-04': { nproc: 8 },
+  'RES-06': { nofile: 32 },
 }
 
 function runNode(script: string, input: unknown, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<RawExecution> {
@@ -60,9 +67,7 @@ function baseAdapter(id: SubjectId): SubjectAdapter {
     },
     async execute(caseDefinition, env): Promise<RawExecution> {
       const mode = dshMode(caseDefinition.profile)
-      const command = caseDefinition.action.kind === 'shell'
-        ? renderTemplate(caseDefinition.action.command, env.context)
-        : caseDefinition.action.argv.join(' ')
+      const command = renderAction(caseDefinition.action, env.context)
       const request = {
         argv: ['bash', '-lc', command],
         mode,
@@ -92,14 +97,13 @@ export const dshPlugin: SubjectAdapter = {
     // The plugin subject always runs the full governance composition (audit
     // ledger + optional net policy) through a real tool pipeline, so its
     // results demonstrate the plugins' semantics end-to-end.
-    const command = caseDefinition.action.kind === 'shell'
-      ? renderTemplate(caseDefinition.action.command, env.context)
-      : caseDefinition.action.argv.join(' ')
+    const command = renderAction(caseDefinition.action, env.context)
     const ledgerDir = mkdtempSync(join(tmpdir(), 'hourglass-aud-'))
     const ledgerPath = join(ledgerDir, 'audit.jsonl')
     const net = caseDefinition.profile === 'P3-NET-ALLOWLIST'
       ? { mode: 'allowlist' as const, allowlist: caseDefinition.id === 'NET-10' ? [] : [ALLOW_HOST] }
       : undefined
+    const quota = caseDefinition.profile === 'P4-RESOURCE-LIMITS' ? RES_QUOTAS[caseDefinition.id] : undefined
     const readDeny = caseDefinition.profile === 'P2-DENY-READ'
       ? [env.context.sensitive]
       : undefined
@@ -116,6 +120,7 @@ export const dshPlugin: SubjectAdapter = {
       cwd: env.context.workspace,
       ...(net === undefined ? {} : { net }),
       ...(readDeny === undefined ? {} : { readDeny }),
+      ...(quota === undefined ? {} : { rsrc: quota }),
       ...(caseDefinition.id === 'ROB-01'
         ? { runnerCommand: ['/nonexistent/hourglass-rob-runner'], forceChain: ['bwrap'] }
         : {}),
@@ -127,6 +132,7 @@ export const dshPlugin: SubjectAdapter = {
         `driver: ${PLUGIN_DRIVER}`,
         `ledger: ${ledgerPath}`,
         ...(net === undefined ? [] : [`net: ${JSON.stringify(net)}`]),
+      ...(quota === undefined ? [] : [`rsrc: ${JSON.stringify(quota)}`]),
       ],
     }
   },

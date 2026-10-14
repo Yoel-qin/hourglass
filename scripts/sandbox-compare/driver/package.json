@@ -12,6 +12,7 @@
     "@deepseek-ai/dsh-tools": "workspace:*",
     "@hourglass/sandbox-audit": "workspace:*",
     "@hourglass/sandbox-net": "workspace:*",
-    "@hourglass/sandbox-read": "workspace:*"
+    "@hourglass/sandbox-read": "workspace:*",
+    "@hourglass/sandbox-rsrc": "workspace:*"
   }
 }

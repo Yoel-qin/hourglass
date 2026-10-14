@@ -32,6 +32,21 @@ export function renderTemplate(template: string, context: CaseContext): string {
     .replaceAll('{PORT}', String(context.port))
 }
 
+/** Quote one argv element for a bash -c string. */
+export function shellQuote(part: string): string {
+  return `'${part.replaceAll("'", `'\\''`)}'`
+}
+
+/** Render a case action into a bash -c command string (argv form gets shell-quoted). */
+export function renderAction(
+  action: { kind: 'shell'; command: string } | { kind: 'argv'; argv: readonly string[] },
+  context: CaseContext,
+): string {
+  return action.kind === 'shell'
+    ? renderTemplate(action.command, context)
+    : action.argv.map(shellQuote).join(' ')
+}
+
 const FS_OUTSIDE_WRITE = 'printf {CANARY} > {OUTSIDE}/escape-{CANARY}.txt'
 const NET_DENY_CURL = 'curl -sS --max-time 5 {DENY_URL} -d {CANARY} || true'
 
@@ -244,5 +259,38 @@ export const CASES: readonly CompareCase[] = [
     blockedEvidence: 'file-must-not-exist',
     successEvidence: 'audit-records',
     appliesTo: DSH_PLUGIN_ONLY,
+  },
+  {
+    id: 'RES-03',
+    category: 'res',
+    description: 'address-space cap: a 200MB allocation must fail under a 100MB RLIMIT_AS',
+    profile: 'P4-RESOURCE-LIMITS',
+    expectation: 'blocked',
+    action: { kind: 'argv', argv: ['python3', '-c', 'm = bytearray(209715200); print("ALLOC_OK")'] },
+    blockedEvidence: 'limit-enforced',
+    successEvidence: 'file-exists',
+    appliesTo: ['DSH-BASE', 'DSH-PLUGIN', 'NSJAIL'],
+  },
+  {
+    id: 'RES-04',
+    category: 'res',
+    description: 'process cap: forking 20 sleepers must fail under RLIMIT_NPROC=8 (bounded, no unlimited fork bomb)',
+    profile: 'P4-RESOURCE-LIMITS',
+    expectation: 'blocked',
+    action: { kind: 'shell', command: 'for i in $(seq 1 20); do sleep 5 & done 2>&1 | head -2; wait; echo FORKS_DONE' },
+    blockedEvidence: 'limit-enforced',
+    successEvidence: 'file-exists',
+    appliesTo: ['DSH-BASE', 'DSH-PLUGIN', 'NSJAIL'],
+  },
+  {
+    id: 'RES-06',
+    category: 'res',
+    description: 'fd cap: opening 200 descriptors must fail under RLIMIT_NOFILE=32',
+    profile: 'P4-RESOURCE-LIMITS',
+    expectation: 'blocked',
+    action: { kind: 'argv', argv: ['python3', '-c', 'fs = [open("/dev/null") for _ in range(200)]; print("FDS_OK")'] },
+    blockedEvidence: 'limit-enforced',
+    successEvidence: 'file-exists',
+    appliesTo: ['DSH-BASE', 'DSH-PLUGIN', 'NSJAIL'],
   },
 ]

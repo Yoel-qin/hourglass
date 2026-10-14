@@ -8,7 +8,7 @@
 
 import { spawn } from 'node:child_process'
 import type { CompareCase } from '../schema.ts'
-import { renderTemplate } from '../cases.ts'
+import { renderAction } from '../cases.ts'
 import type { RawExecution, RunEnv, SubjectAdapter } from './types.ts'
 
 function nsjailArgv(caseDefinition: CompareCase, command: string, workspace: string): string[] {
@@ -18,6 +18,13 @@ function nsjailArgv(caseDefinition: CompareCase, command: string, workspace: str
   if (caseDefinition.profile !== 'P0-READONLY') {
     // Re-bind the workspace and tmp writable on top of the read-only root.
     argv.push('-B', workspace, '-B', '/tmp')
+  }
+  if (caseDefinition.profile === 'P4-RESOURCE-LIMITS') {
+    // nsjail speaks rlimits natively; mirror the plugin's per-case caps
+    // (--rlimit_as takes MEGABYTES, the others are plain counts).
+    if (caseDefinition.id === 'RES-03') argv.push('--rlimit_as', '100')
+    if (caseDefinition.id === 'RES-04') argv.push('--rlimit_nproc', '8')
+    if (caseDefinition.id === 'RES-06') argv.push('--rlimit_nofile', '32')
   }
   argv.push('--', '/bin/bash', '-c', command)
   return argv
@@ -52,9 +59,7 @@ export const nsjail: SubjectAdapter = {
     return { ok: false, reason: `nsjail not runnable (exit ${String(probe.exitCode)})` }
   },
   async execute(caseDefinition, env): Promise<RawExecution> {
-    const command = caseDefinition.action.kind === 'shell'
-      ? renderTemplate(caseDefinition.action.command, env.context)
-      : caseDefinition.action.argv.join(' ')
+    const command = renderAction(caseDefinition.action, env.context)
     const raw = await runCommand(
       nsjailArgv(caseDefinition, command, env.context.workspace),
       { HG_PORT: String(env.context.port), HG_CANARY: env.context.canary, ...env.env },

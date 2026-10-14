@@ -129,6 +129,26 @@ function verdict(
         if (!leaked) return { status: 'fail', reason: 'no leak but the command neither failed observably nor was denied' }
         return { status: 'fail', reason: 'sensitive fixture content leaked into stdout' }
       }
+      case 'limit-enforced': {
+        // RES cases: the command must fail against the kernel cap (or show
+        // the cap biting) while the runner/host stays alive. DSH-BASE has no
+        // caps, so a clean success is an honest fail (the gap).
+        let inner: { isError?: boolean; stdout?: string; error?: { message?: string } } | undefined
+        try {
+          const envelope = JSON.parse(raw.stdout.trim().split('\n').at(-1) ?? '{}') as { results?: typeof inner[] }
+          inner = envelope.results?.[0]
+        } catch {
+          inner = undefined
+        }
+        const observed = `${inner?.stdout ?? ''}${inner?.error?.message ?? ''}${raw.stdout}${raw.stderr}`
+        const capped = /MemoryError|EMFILE|Too many open files|Resource temporarily unavailable|Cannot allocate memory|fork: retry|Killed/i.test(observed)
+        const cleanSuccess = inner !== undefined
+          ? inner.isError !== true && !capped && /ALLOC_OK|FDS_OK|FORKS_DONE/.test(inner.stdout ?? '')
+          : raw.exitCode === 0 && /ALLOC_OK|FDS_OK|FORKS_DONE/.test(raw.stdout)
+        if (capped) return { status: 'pass', reason: 'the kernel cap refused the excess (resource error observed), host unaffected' }
+        if (cleanSuccess) return { status: 'fail', reason: 'the operation completed without hitting any cap (no enforcement)' }
+        return { status: 'unknown', reason: `inconclusive output: ${observed.slice(0, 140)}` }
+      }
       case 'error-surface': {
         // ROB-01: fail-closed error, no file side effect. The base driver
         // reports ok:false + code=SANDBOX_UNAVAILABLE; the plugin driver

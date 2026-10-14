@@ -48,6 +48,13 @@
 - [x] 三层事实关联 schema + 诚实性规则（value.sandbox 提取、stderr 不升级、os_observation=unavailable）
 - [ ] Docker 内全量测试验证
 
+### 阶段 7：P3 资源配额 — status: complete
+- [x] @hourglass/sandbox-rsrc：prlimit 硬上限注入（nproc/as/cpu/fsize/nofile，内核强制）；空配置零改变；非 bwrap fail-closed
+- [x] RES-03（内存）/RES-06（fd）：DSH-PLUGIN 与 nsjail 真实 PASS；DSH-BASE 无强制 FAIL（缺口）
+- [x] RES-04（进程数）：userns 内 CAP_SYS_ADMIN 豁免 RLIMIT_NPROC —— 内核机制边界，三方如实 FAIL（诚实发现）
+- [x] nsjail --rlimit_as 单位为 MB（字节数会被放大成 TB）
+- [x] v8 矩阵：DSH-PLUGIN 21/1、单测 86/86
+
 ### 阶段 6：P2b 敏感读保护 + 竞品 lane 校准 — status: complete
 - [x] @hourglass/sandbox-read：tmpfs 遮蔽（直接读与 symlink 别名同遮蔽）；非 bwrap fail-closed；默认空集（opt-in）
 - [x] FS-11/12：DSH-PLUGIN 零泄漏 PASS；DSH-BASE 泄漏 FAIL（真实缺口）；SRT PASS（denyRead）；nsjail unsupported（无机制）

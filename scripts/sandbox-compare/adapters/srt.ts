@@ -12,7 +12,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { CompareCase } from '../schema.ts'
 import { ALLOW_HOST, DENY_HOST } from '../net-service.ts'
-import { renderTemplate } from '../cases.ts'
+import { renderAction } from '../cases.ts'
 import type { RawExecution, RunEnv, SubjectAdapter } from './types.ts'
 
 interface SrtSettings {
@@ -82,9 +82,7 @@ export const srt: SubjectAdapter = {
     mkdirSync(srtHome, { recursive: true })
     const settings = settingsFor(caseDefinition, env)
     writeFileSync(join(srtHome, '.srt-settings.json'), `${JSON.stringify(settings, null, 2)}\n`)
-    const command = caseDefinition.action.kind === 'shell'
-      ? renderTemplate(caseDefinition.action.command, env.context)
-      : caseDefinition.action.argv.join(' ')
+    const command = renderAction(caseDefinition.action, env.context)
     const raw = await runCommand(
       ['srt', 'bash', '-c', command],
       {

@@ -73,3 +73,11 @@
   - fixture 每 (subject×case) reset——消除跨 subject 的快照钝化
 - **最终矩阵 v5（compare-all-v5）**：DSH-BASE 9/8（缺口真实）、DSH-PLUGIN 19/0（满分）、
   SRT 15/1（NET-01 环境限制）、NSJAIL 13/1（NET-01 机制性）；单测 78/78
+
+## 会话 1 续 3（2026-10-14，P3 资源配额）
+
+- **@hourglass/sandbox-rsrc**：prlimit 硬上限装饰器（8 测试，总计 86/86）
+- RES-03/06：DSH-PLUGIN/nsjail 内核级真实拒绝；DSH-BASE 缺口
+- RES-04：发现 userns 内 CAP_SYS_ADMIN 豁免 RLIMIT_NPROC（内核机制边界，三方一致 FAIL，
+  进程数硬限制需 cgroup pids——后续工作）；nsjail --rlimit_as 单位是 MB（字节数→TB 假上限）
+- v8 定稿矩阵：DSH-BASE 9/11/2、DSH-PLUGIN 21/1/0、SRT 15/1/6、NSJAIL 15/2/5
