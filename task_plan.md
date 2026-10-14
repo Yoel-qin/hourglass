@@ -48,6 +48,13 @@
 - [x] 三层事实关联 schema + 诚实性规则（value.sandbox 提取、stderr 不升级、os_observation=unavailable）
 - [ ] Docker 内全量测试验证
 
+### 阶段 11：NET-14 生命周期边界 + smoke-p2 全集 — status: complete
+- [x] NET-14 两阶段：策略前 spawn 的分离进程（-OLD canary）vs 新 confine（-NEW canary）
+- [x] 判定只看 -NEW（PASS：零到达）；-OLD 披露为声明边界
+- [x] 实际发现更有价值：OLD 进程 0 到达——bwrap die-with-parent 使后台进程随沙箱销毁，无幸存越权路径
+- [x] **smoke-p2 gate 全量跑通**：13 case × 4 subject = 52 结果，零 skip 零 blocked（计划要求的 P2 集全部交付且真实执行）
+- [x] v11 全量矩阵（24 case × 4 = 96 结果）：DSH-PLUGIN 23/1（唯一 fail = NET-13 有意边界）
+
 ### 阶段 10：ROB-04 生命周期循环 — status: complete
 - [x] lifecycle/index.ts（@hourglass/lifecycle 包）：单进程 1000 次挂载/卸载/全插件 confine，测 fd/RSS/临时目录
 - [x] 100 次缩减版：PASS（fd+0、临时目录+0、0 失败）

@@ -104,7 +104,7 @@ namespace 创建在非特权容器被 runtime 阻止（实测），privileged �
 - **DSH-PLUGIN 的唯一 fail（RES-04）**：userns 内 CAP_SYS_ADMIN 豁免 RLIMIT_NPROC 的内核机制边界
   （进程数硬限制需 cgroup pids 控制器，属后续工作，非插件缺陷）。
 - SRT/nsjail 的 NET-01 fail 分别为环境限制（SSRF 防护拒本机地址）与机制差异（netns 无 allowlist 通道）。
-- **ROB-04 已交付**：1000 次挂载/卸载/全插件 confine 循环 PASS——fd 零增长、临时目录零残留、0 失败（RSS +170MB 为 cordis Context 分配曲线，观测记录）。NET-14（持久 PTY）未实现：
+- **ROB-04 已交付**：1000 次挂载/卸载/全插件 confine 循环 PASS——fd 零增长、临时目录零残留、0 失败（RSS +170MB 为 cordis Context 分配曲线，观测记录）。NET-14 已交付（两阶段生命周期 case）：新 confine 被拦（-NEW 零到达）；策略前 spawn 的进程实测 0 到达——bwrap die-with-parent 使后台进程随沙箱销毁（无幸存越权路径，比预期边界更安全）；smoke-p2 gate 全量跑通（13×4=52 结果零 skip）。计划其余未交付项：
   PERF 30 次重复（计划要求 CI job 属性）、P4 时间旅行（计划明确需产品负责人批准，默认不做）、
   P5 eBPF 观察器（可选研究）。
 - 覆盖率门禁：hourglass 未接入 DSH per-file 100% coverage 跑法（独立项目按 ADR-001 不进 DSH 的

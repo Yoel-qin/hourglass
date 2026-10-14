@@ -109,3 +109,9 @@
 - lifecycle 包（挂/卸/全插件 confine 循环 + fd/RSS/临时目录快照）
 - 100 次缩减版 PASS；**1000 次完整版 PASS**（fd+0、tempDir+0、0 失败；RSS+170MB 观测项）
 - 计划 §5.6 ROB-04 门达标；entrypoint rob04 命令交付为可重跑 job
+
+## 会话 2 续 4（NET-14 + smoke-p2）
+
+- NET-14 两阶段 case：-OLD（策略前 spawn）/-NEW（新 confine）canary 区分判定
+- 发现：OLD 进程 0 到达——die-with-parent 使后台进程随沙箱销毁（无幸存越权路径）
+- v11（24×4=96）：DSH-PLUGIN 23/1；smoke-p2 gate 全量跑通（13×4=52，零 skip 零 blocked）

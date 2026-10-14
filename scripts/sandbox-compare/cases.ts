@@ -282,6 +282,17 @@ export const CASES: readonly CompareCase[] = [
     appliesTo: ['DSH-PLUGIN'],
   },
   {
+    id: 'NET-14',
+    category: 'net',
+    description: 'lifecycle boundary: a process spawned BEFORE the egress policy applies keeps its pre-policy network path (declared boundary), while every NEW confine is isolated; the verdict keys on the new-confine canary only',
+    profile: 'P3-NET-ALLOWLIST',
+    expectation: 'blocked',
+    action: { kind: 'shell', command: 'curl -sS --max-time 4 {DENY_URL} -d {CANARY}-NEW || true' },
+    blockedEvidence: 'no-server-request',
+    successEvidence: 'server-request-received',
+    appliesTo: ['DSH-PLUGIN'],
+  },
+  {
     id: 'RES-03',
     category: 'res',
     description: 'address-space cap: a 200MB allocation must fail under a 100MB RLIMIT_AS',

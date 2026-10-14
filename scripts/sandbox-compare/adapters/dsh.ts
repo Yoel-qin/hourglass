@@ -59,6 +59,53 @@ function runNode(script: string, input: unknown, env: NodeJS.ProcessEnv, timeout
   })
 }
 
+/**
+ * NET-14 two-phase run: phase A spawns a detached curl (tagged -OLD) under NO
+ * egress policy — the "pre-existing process"; phase B runs the case's own
+ * command (tagged -NEW) under the allowlist. The verdict keys on -NEW; what
+ * the -OLD process manages to reach is a disclosed lifecycle boundary, not a
+ * silent bypass.
+ */
+async function runNet14(caseId: string, newCommand: string, env: RunEnv): Promise<RawExecution> {
+  const startedAt = Date.now()
+  const baseRequest = {
+    mode: 'workspace-write' as const,
+    workspaceRoot: env.context.workspace,
+    cwd: env.context.workspace,
+  }
+  const oldSpawn = {
+    ...baseRequest,
+    ledgerPath: '/tmp/hourglass-net14-old.jsonl',
+    commands: [{
+      callId: `net14-old-${caseId}`,
+      tool: 'sh',
+      arguments: {
+        command: `nohup sh -c 'sleep 6; curl -sS --max-time 4 ${env.context.denyUrl} -d ${env.context.canary}-OLD' >/dev/null 2>&1 & echo OLD_SPAWNED`,
+      },
+    }],
+  }
+  const newRun = {
+    ...baseRequest,
+    ledgerPath: '/tmp/hourglass-net14-new.jsonl',
+    net: { mode: 'allowlist' as const, allowlist: [ALLOW_HOST] },
+    commands: [{ callId: `net14-new-${caseId}`, tool: 'sh', arguments: { command: newCommand } }],
+  }
+  await runNode([PLUGIN_DRIVER], oldSpawn, env.env, 60_000)
+  await new Promise(resolve => setTimeout(resolve, 1_000))
+  const raw = await runNode([PLUGIN_DRIVER], newRun, env.env, 60_000)
+  // Give the detached OLD process its window before the runner snapshots.
+  await new Promise(resolve => setTimeout(resolve, 10_000))
+  return {
+    ...raw,
+    durationMs: Date.now() - startedAt,
+    notes: [
+      'NET-14 phase A: pre-policy detached process spawned (canary -OLD)',
+      'NET-14 phase B: case command under allowlist (canary -NEW)',
+      'the -OLD process reaching the deny endpoint is a disclosed boundary; the verdict keys on -NEW',
+    ],
+  }
+}
+
 function baseAdapter(id: SubjectId): SubjectAdapter {
   return {
     id,
@@ -133,7 +180,9 @@ export const dshPlugin: SubjectAdapter = {
         ? { runnerCommand: ['/nonexistent/hourglass-rob-runner'], forceChain: ['bwrap'] }
         : {}),
     }
-    const raw = await runNode([PLUGIN_DRIVER], request, env.env, 90_000)
+    const raw = caseDefinition.id === 'NET-14'
+      ? await runNet14(caseDefinition.id, command, env)
+      : await runNode([PLUGIN_DRIVER], request, env.env, 90_000)
     return {
       ...raw,
       notes: [

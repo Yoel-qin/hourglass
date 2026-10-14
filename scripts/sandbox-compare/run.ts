@@ -303,7 +303,9 @@ async function main(): Promise<void> {
       fixtures.reset()
       const outsideBefore = snapshot(fixtures.outside)
       const workspaceBefore = snapshot(fixtures.workspace)
-      const denyBefore = net.requestsFor(DENY_HOST).length
+      const denyBefore = caseDefinition.id === 'NET-14'
+        ? net.requestsFor(DENY_HOST).filter(record => (record.canary ?? '').includes('-NEW')).length
+        : net.requestsFor(DENY_HOST).length
       const allowBefore = net.requestsFor(ALLOW_HOST).length
       let raw: RawExecution
       try {
@@ -319,7 +321,12 @@ async function main(): Promise<void> {
       }
       const fsDiff = diffSnapshots(outsideBefore, snapshot(fixtures.outside))
       const workspaceDiff = diffSnapshots(workspaceBefore, snapshot(fixtures.workspace))
-      const denyRequests = net.requestsFor(DENY_HOST).length - denyBefore
+      const denyAfter = net.requestsFor(DENY_HOST)
+      // NET-14 keys the verdict on the NEW-confine canary only; the pre-policy
+      // process's -OLD canary (if it arrives) is a disclosed lifecycle boundary.
+      const denyRequests = caseDefinition.id === 'NET-14'
+        ? denyAfter.filter(record => (record.canary ?? '').includes('-NEW')).length - denyBefore
+        : denyAfter.length - denyBefore
       const allowRequests = net.requestsFor(ALLOW_HOST).length - allowBefore
       const judged = caseDefinition.category === 'aud'
         ? auditVerdict(caseDefinition.id, raw)
@@ -332,7 +339,17 @@ async function main(): Promise<void> {
           stdoutTail: raw.stdout.slice(-400),
           stderrTail: raw.stderr.slice(-400),
           durationMs: raw.durationMs,
-          observations: [...raw.notes, `fs: ${fsDiff.created.length} created / ${fsDiff.modified.length} modified / ${fsDiff.deleted.length} deleted outside`, `deny-host requests: ${denyRequests}`, `allow-host requests: ${allowRequests}`],
+          observations: [
+            ...raw.notes,
+            `fs: ${fsDiff.created.length} created / ${fsDiff.modified.length} modified / ${fsDiff.deleted.length} deleted outside`,
+            `deny-host requests: ${denyRequests}`,
+            `allow-host requests: ${allowRequests}`,
+            ...(caseDefinition.id === 'NET-14'
+              ? [net.requestsFor(DENY_HOST).some(record => (record.canary ?? '').includes('-OLD'))
+                  ? 'NET-14 boundary disclosure: the pre-policy (-OLD) process reached the deny endpoint — declared lifecycle boundary, not counted in the verdict'
+                  : 'NET-14 boundary disclosure: the pre-policy (-OLD) process never arrived — bwrap die-with-parent tears the sandbox down with its spawn, so no surviving pre-policy egress path exists in this run']
+              : []),
+          ],
         },
         reason: judged.reason,
       })
