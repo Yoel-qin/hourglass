@@ -23,10 +23,20 @@ describe('prlimitArgs', () => {
 })
 
 describe('wrapConfinedForResourceLimits', () => {
-  it('inserts prlimit immediately before the command', () => {
+  it('inserts prlimit immediately before the command (non-nproc caps)', () => {
+    const wrapped = wrapConfinedForResourceLimits(confined, { nofile: 32 })
+    const separator = wrapped.argv.indexOf('--')
+    expect(wrapped.argv.slice(separator + 1)).toEqual(['prlimit', '--nofile=32', '--', 'bash', '-c', 'true'])
+  })
+
+  it('an nproc cap additionally drops to an unprivileged uid via setpriv (CAP_SYS_ADMIN exempts RLIMIT_NPROC otherwise)', () => {
     const wrapped = wrapConfinedForResourceLimits(confined, { nproc: 8 })
     const separator = wrapped.argv.indexOf('--')
-    expect(wrapped.argv.slice(separator + 1)).toEqual(['prlimit', '--nproc=8', '--', 'bash', '-c', 'true'])
+    expect(wrapped.argv.slice(separator + 1)).toEqual([
+      'prlimit', '--nproc=8', '--',
+      'setpriv', '--reuid=65534', '--regid=65534', '--clear-groups', '--',
+      'bash', '-c', 'true',
+    ])
   })
 
   it('works after the net plugin launcher (prlimit wraps the launcher)', () => {

@@ -1,4 +1,4 @@
-# hourglass 最终报告（P0 + P1 + P2a + P2b + P3 交付）
+# hourglass 最终报告（P0 + P1 + P2a + P2b + P3 + RES-04 攻坚 交付）
 
 > 更新：2026-10-14（完全自动模式会话 1；P2a 网络强制 + P2b 读保护 + 竞品 lane 校准后）
 > 计划依据：《DeepSeek-Harness-沙箱插件开发与竞品对比测试计划》
@@ -32,9 +32,9 @@
 其 deny 语义已由 NET-02..06 真实验证（此限制属环境不可比，非 SRT 缺陷）。
 \*\* nsjail 的隔离粒度是命名空间级（全断），无法表达域名 allowlist——机制差异，如实呈现。
 
-**P3 资源配额（@hourglass/sandbox-rsrc + v8 矩阵）**：prlimit 硬上限（RLIMIT_AS/CPU/FSIZE/NOFILE）注入命令前缀，内核强制。RES-03（内存）/RES-06（fd）：DSH-PLUGIN 真实拒绝超限（PASS）；nsjail 原生 rlimit 同效（其 --rlimit_as 单位为 MB）；DSH-BASE 无强制（FAIL=缺口）；SRT 无 rlimit 配置面（unsupported）。**RES-04（进程数）：userns 内 root 持 CAP_SYS_ADMIN 使 RLIMIT_NPROC 被内核豁免——DSH-PLUGIN/nsjail/DSH-BASE 三方一致无法硬强制，如实 FAIL**（机制边界：进程数硬限制需 cgroup pids，属后续工作）。
+**P3 资源配额（@hourglass/sandbox-rsrc + v8 矩阵）**：prlimit 硬上限（RLIMIT_AS/CPU/FSIZE/NOFILE）注入命令前缀，内核强制。RES-03（内存）/RES-06（fd）：DSH-PLUGIN 真实拒绝超限（PASS）；nsjail 原生 rlimit 同效（其 --rlimit_as 单位为 MB）；DSH-BASE 无强制（FAIL=缺口）；SRT 无 rlimit 配置面（unsupported）。**RES-04（进程数）：已攻坚成功——prlimit --nproc=N 外层 + setpriv uid 降权（65534）内层：无 capability 的 uid 让内核 fork 检查真实生效（实测 fork: retry 拒绝）；DSH-PLUGIN PASS。** 代价声明：nproc 强制伴随 uid 降权（沙箱内进程需普通文件权限写文件）。nsjail 的原生 rlimit_nproc 受同样 CAP 豁免且无降权通道 → 如实 FAIL（机制差异）；DSH-BASE 无配额（缺口）。
 
-**总分（v8，22 case × 4）：DSH-BASE 9/11/2、DSH-PLUGIN 21/1/0、SRT 15/1/6、NSJAIL 15/2/5。**
+**总分（v9，22 case × 4）：DSH-BASE 9/11/2、DSH-PLUGIN 22/0/0（满分）、SRT 15/1/6、NSJAIL 15/2/5。能力清单（test-result 证据）：DSH-PLUGIN 五项全部 enforced（fileRead/fileWrite/netEgress/resourceLimits/processControl）；DSH-BASE fileWrite=enabled 之外四项 absent。**
 DSH-PLUGIN 相对 DSH-BASE 的净增量：网络出口（6 case）+ 敏感读（2 case）+ 审计（2 case），
 且文件边界与 fail-closed 零回归。
 

@@ -41,8 +41,8 @@ const manifest = buildManifest({
     fileWrite: { status: statusFrom(['FS-02', 'FS-03', 'FS-04', 'FS-05', 'FS-06']), evidenceRef: `${report.runId}: FS-02..06` },
     fileRead: { status: statusFrom(['FS-11', 'FS-12']), evidenceRef: `${report.runId}: FS-11/12` },
     netEgress: { status: statusFrom(['NET-02', 'NET-03', 'NET-05', 'NET-06', 'NET-10']), evidenceRef: `${report.runId}: NET deny matrix` },
-    resourceLimits: { status: statusFrom(['RES-03', 'RES-06']), evidenceRef: `${report.runId}: RES-03/06 (RES-04 nproc exempted by userns CAP_SYS_ADMIN)` },
-    processControl: { status: 'absent', evidenceRef: 'RES-04: RLIMIT_NPROC is kernel-exempted under userns CAP_SYS_ADMIN; cgroup pids is the future hard path' },
+    resourceLimits: { status: statusFrom(['RES-03', 'RES-04', 'RES-06']), evidenceRef: `${report.runId}: RES-03/04/06 (nproc enforced via prlimit + setpriv uid drop)` },
+    processControl: { status: statusFrom(['RES-04']), evidenceRef: `${report.runId}: RES-04 (RLIMIT_NPROC bites after setpriv drops the CAP_SYS_ADMIN exemption; bounded process tree)` },
   },
 })
 

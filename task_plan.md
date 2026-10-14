@@ -48,6 +48,13 @@
 - [x] 三层事实关联 schema + 诚实性规则（value.sandbox 提取、stderr 不升级、os_observation=unavailable）
 - [ ] Docker 内全量测试验证
 
+### 阶段 8：RES-04 攻坚（nproc 硬限制） — status: complete
+- [x] 根因：userns 内 root 持 CAP_SYS_ADMIN 使内核豁免 RLIMIT_NPROC（fork 检查 capable() 为真即跳过）
+- [x] 方案：prlimit --nproc=N 外层 + setpriv --reuid=65534 --clear-groups 内层（无 CAP 的 uid 使限制生效；实测 fork: retry）
+- [x] 代价声明：nproc 强制伴随 uid 降权，沙箱内进程需普通文件权限才能写（RES-04 命令无写需求）
+- [x] v9 矩阵：DSH-PLUGIN 22/0 满分；能力清单五项全部 enforced（test-result 证据）；单测 87/87
+- [x] nsjail 的 rlimit_nproc 受同样豁免且无 setpriv 通道 → 如实 FAIL（机制差异）
+
 ### 阶段 7：P3 资源配额 — status: complete
 - [x] @hourglass/sandbox-rsrc：prlimit 硬上限注入（nproc/as/cpu/fsize/nofile，内核强制）；空配置零改变；非 bwrap fail-closed
 - [x] RES-03（内存）/RES-06（fd）：DSH-PLUGIN 与 nsjail 真实 PASS；DSH-BASE 无强制 FAIL（缺口）

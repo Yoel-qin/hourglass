@@ -50,10 +50,20 @@ export function prlimitArgs(config: Config): string[] {
 }
 
 /**
+ * The uid the nproc cap drops to. RLIMIT_NPROC is enforced per real UID and
+ * is kernel-exempted for processes holding CAP_SYS_ADMIN/CAP_SYS_RESOURCE —
+ * which sandboxed root always has inside its user namespace. Dropping to an
+ * unprivileged uid (nobody) makes the cap bite; the trade-off is that the
+ * sandboxed process then needs ordinary file permissions to write.
+ */
+export const NPROC_DROP_UID = 65534
+
+/**
  * Rewrite one confined argv so the command runs under the configured hard
  * caps. Works with a bare wrap (bwrap … -- cmd) and with the net plugin's
  * launcher (… -- /bin/sh launch.sh cmd): prlimit is inserted immediately
- * before the command either way.
+ * before the command either way. When an nproc cap is configured, the command
+ * additionally runs as an unprivileged uid via setpriv — see NPROC_DROP_UID.
  */
 export function wrapConfinedForResourceLimits(confined: ConfinedArgv, config: Config): ConfinedArgv {
   const limits = prlimitArgs(config)
@@ -69,7 +79,21 @@ export function wrapConfinedForResourceLimits(confined: ConfinedArgv, config: Co
   }
   const bwrapArgs = confined.argv.slice(0, separator)
   const command = confined.argv.slice(separator + 1)
-  return { ...confined, argv: [...bwrapArgs, '--', 'prlimit', ...limits, '--', ...command] }
+  if (config.nproc === undefined) {
+    return { ...confined, argv: [...bwrapArgs, '--', 'prlimit', ...limits, '--', ...command] }
+  }
+  return {
+    ...confined,
+    argv: [
+      ...bwrapArgs,
+      '--',
+      'prlimit', ...limits, '--',
+      'setpriv',
+      `--reuid=${NPROC_DROP_UID}`, `--regid=${NPROC_DROP_UID}`, '--clear-groups',
+      '--',
+      ...command,
+    ],
+  }
 }
 
 export function apply(ctx: Context, config: Config): void {

@@ -81,3 +81,10 @@
 - RES-04：发现 userns 内 CAP_SYS_ADMIN 豁免 RLIMIT_NPROC（内核机制边界，三方一致 FAIL，
   进程数硬限制需 cgroup pids——后续工作）；nsjail --rlimit_as 单位是 MB（字节数→TB 假上限）
 - v8 定稿矩阵：DSH-BASE 9/11/2、DSH-PLUGIN 21/1/0、SRT 15/1/6、NSJAIL 15/2/5
+
+## 会话 2（2026-10-14，RES-04 攻坚）
+
+- 根因确认：userns 内 root 的 CAP_SYS_ADMIN 使内核 fork 检查豁免 RLIMIT_NPROC
+  （capsh --drop=all 在本环境 exec 任何二进制均 rc=126，弃用）
+- 方案：prlimit --nproc=N + setpriv --reuid=65534 --clear-groups（实测 fork: retry 生效）
+- v9：DSH-PLUGIN 22/0 满分；能力清单五项全部 enforced（test-result 证据）；单测 87/87
