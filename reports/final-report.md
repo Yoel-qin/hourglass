@@ -67,11 +67,12 @@ Codex=0.162.1（官方二进制，**整体 not-run：无 OpenAI 凭证**，versi
 测试环境：Docker privileged 容器（node:24-slim/bookworm，WSL2 内核 6.18）；bwrap/nsjail 的
 namespace 创建在非特权容器被 runtime 阻止（实测），privileged 是本机可复现基线的前提。
 
-## 3. 安全矩阵（smoke-p1，36 结果）
+## 3. 安全矩阵（v8，22 case × 4 subject = 88 结果）
 
-原始数据：`reports/runs/compare-20261014T011836Z/compare.json`（结构化证据）+ `summary.md`。
-- PASS 判据全部来自外部世界观察（文件系统快照差分 / 服务端 canary 记录），非 stderr。
-- UNSUPPORTED 仅用于 AUD×非 DSH-PLUGIN（observability 不可比）与 ROB-01×非 DSH（无 runner 概念）。
+原始数据：`reports/runs/compare-all-v8/compare.json`（结构化证据）+ `summary.md`。
+- PASS 判据全部来自外部世界观察（文件系统快照差分 / 服务端 canary 记录 / 资源错误信号），非 stderr 文本断言。
+- UNSUPPORTED 仅用于 AUD×非 DSH-PLUGIN（observability 不可比）、ROB-01×非 DSH（无 runner 概念）、
+  RES×SRT（无 rlimit 配置面）、FS-11/12×nsjail（无 denyRead 机制）。
 - CODEX 全部 not-run（无凭证），每条带原因。
 
 ## 4. 创新点验收
@@ -87,31 +88,43 @@ namespace 创建在非特权容器被 runtime 阻止（实测），privileged �
 
 未纳入本阶段（计划 §6 要求 30 次重复 + 独立 CI job；compare 报告含每次 case durationMs 原始值）。
 
-## 6. 严重失败与缺口
+## 6. 严重失败与缺口（v8 全景）
 
-- **DSH 网络出口缺口（6 fail）**：非 hourglass 引入（BASE 与 PLUGIN 相同）；属 P2a 范围。
-- RES/性能/NET-13/14 未实现（P2/P3 范围，case 池已预留）。
-- 覆盖率门禁：hourglass 测试未接入 DSH per-file 100% coverage 跑法（独立项目按 ADR-001 不进
-  DSH 的 run-gates；hourglass 自身 58 测试覆盖全部新分支）。
+- **DSH-BASE 的 11 个 fail 全部是插件前真实缺口**（网络×6、denyRead×2、资源×3）——这是基线的
+  诚实画像，也是 DSH-PLUGIN 21/1 的对照价值。
+- **DSH-PLUGIN 的唯一 fail（RES-04）**：userns 内 CAP_SYS_ADMIN 豁免 RLIMIT_NPROC 的内核机制边界
+  （进程数硬限制需 cgroup pids 控制器，属后续工作，非插件缺陷）。
+- SRT/nsjail 的 NET-01 fail 分别为环境限制（SSRF 防护拒本机地址）与机制差异（netns 无 allowlist 通道）。
+- 未实现（计划范围外或后续）：NET-13/14（Harness 代调用/PTY 生命周期）、ROB-04 千次循环与
+  PERF 30 次重复（计划要求 CI job 属性）、P4 时间旅行（计划明确需产品负责人批准，默认不做）、
+  P5 eBPF 观察器（可选研究）。
+- 覆盖率门禁：hourglass 未接入 DSH per-file 100% coverage 跑法（独立项目按 ADR-001 不进 DSH 的
+  run-gates；hourglass 自身 86 测试覆盖全部新分支）。
 
 ## 7. 修改文件与接口变化
 
-DSH 仓库：**零修改**（只读引用）。全部产出在 hourglass 项目（packages/×3、scripts/sandbox-compare、
-docker、docs/ADR-001、reports）。
+DSH 仓库：**零修改**（只读引用）。全部产出在 hourglass 项目（packages/×5：audit、capabilities、
+policy-ci、net、read、rsrc；scripts/sandbox-compare；docker；docs/ADR-001；reports）。
 
 ## 8. 复现命令
 
 ```bash
-docker build -t hourglass-test -f docker/Dockerfile .   # 需先 vendor（见 docker/vendor README 注记）
+# vendor tarballs（宿主下载，见 docker/Dockerfile 注记）后：
+docker build -t hourglass-test -f docker/Dockerfile .
 docker run --rm --privileged -v "$(pwd)/reports:/opt/reports" \
   --entrypoint /usr/local/bin/hourglass-entrypoint hourglass-test run-all
-# gates（版本锁 sha256）→ unit（7 files/58 tests）→ compare（36 结果 JSON+MD）
+# gates（版本锁 sha256）→ unit（10 files/86 tests）→ compare（smoke-p1 36 结果）
+# 全量矩阵：… -c 'cd /opt/dsh && node --experimental-strip-types \
+#   /opt/hourglass/scripts/sandbox-compare/run.ts --smoke=all --out=/opt/reports/runs/<id>'
 ```
 
 ## 9. 下一步建议（依据已测结果）
 
-1. **P2a Linux 网络出口**：SRT 已证明 bwrap+netns+代理 allowlist 可行且全部 NET 拦截；
-   DSH 可最小化复用该模式（不引生产依赖，见 ADR-001 约束）。
-2. **P2b denyRead**：SRT 的 denyRead 语义可直接对齐 FS-11/12（case 已就绪，SRT 预期 PASS、DSH 预期
-   FAIL 暴露缺口）；DSH 侧按 bwrap ro-bind 白名单或 Landlock 读限制设计。
-3. Codex lane 需要凭证才能从 not-run 升级（versions.lock 待审更新）。
+1. **进程数硬限制走 cgroup pids**（RES-04 的唯一可行硬路径；容器 privileged 下可创建 per-call
+   cgroup，代价是生命周期管理）。
+2. **NET-13/14**：Harness 代调用（web fetch/MCP）与持久 PTY 的网络边界——case 语义已在计划中
+   定义，需扩展 driver 挂载 web 工具面。
+3. **ROB-04/PERF 长循环**：封装为可重跑 CI job（计划 §10.1 明确不要求单会话等待）。
+4. **Codex lane**：需 OpenAI 凭证才能从 not-run 升级（versions.lock 待审更新）。
+5. **能力清单联动**：把 v8 矩阵结果作为 test-result 证据喂给 buildManifest 的 tested 参数，
+   netEgress/fileRead/resourceLimits 即可从 absent→enforced（机制与证据都已具备）。

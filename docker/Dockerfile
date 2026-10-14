@@ -109,6 +109,7 @@ FROM dsh AS test
 # inside the workspace so their imports resolve against /opt/dsh/node_modules.
 COPY packages/ /opt/dsh/packages/hourglass/
 COPY scripts/sandbox-compare/driver/ /opt/dsh/packages/hourglass/driver/
+COPY scripts/sandbox-compare/manifest-from-compare.ts /opt/dsh/packages/hourglass/manifest-from-compare.ts
 COPY scripts/sandbox-compare/ /opt/hourglass/scripts/sandbox-compare/
 COPY docker/entrypoint.sh /usr/local/bin/hourglass-entrypoint
 RUN chmod +x /usr/local/bin/hourglass-entrypoint
