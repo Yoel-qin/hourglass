@@ -1,0 +1,14 @@
+{
+  "name": "@hourglass/lifecycle",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ROB-04 lifecycle loop runner (not published)",
+  "type": "module",
+  "dependencies": {
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-sandbox-local": "workspace:*",
+    "@hourglass/sandbox-net": "workspace:*",
+    "@hourglass/sandbox-read": "workspace:*",
+    "@hourglass/sandbox-rsrc": "workspace:*"
+  }
+}

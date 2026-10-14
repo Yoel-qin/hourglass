@@ -51,12 +51,20 @@ do_perf() {
   node --experimental-strip-types "$HG_SCRIPTS/sandbox-compare/perf.ts" --runs="${PERF_RUNS:-30}" --out="$out" 2>&1 | tee "$out.log"
 }
 
+do_rob04() {
+  log "running ROB-04 lifecycle loop (${ROB04_CYCLES:-1000} cycles)"
+  cd "$DSH"
+  node --experimental-strip-types /opt/dsh/packages/hourglass/lifecycle/index.ts \
+    --cycles="${ROB04_CYCLES:-1000}" --out="$REPORTS/runs/rob04-latest.json" 2>&1 | tee "$REPORTS/runs/rob04-latest.txt"
+}
+
 case "${1:-bash}" in
   gates)   do_gates ;;
   unit)    do_unit ;;
   compare) do_compare ;;
   perf)    do_perf ;;
-  run-all) do_gates; do_unit; do_compare; do_perf ;;
+  rob04)   do_rob04 ;;
+  run-all) do_gates; do_unit; do_compare; do_perf; do_rob04 ;;
   bash)    exec bash ;;
   *)       exec "$@" ;;
 esac

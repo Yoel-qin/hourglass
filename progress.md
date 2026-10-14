@@ -103,3 +103,9 @@
   Harness 代调用旁路被服务端证据证实，且该调用有完整审计记录（非未审计旁路）——符合计划
   「分别记录边界，不得掩盖」的要求
 - NET-14 未实现：smoke-p2 gate 按计划语义对其明确 blocked
+
+## 会话 2 续 3（ROB-04）
+
+- lifecycle 包（挂/卸/全插件 confine 循环 + fd/RSS/临时目录快照）
+- 100 次缩减版 PASS；**1000 次完整版 PASS**（fd+0、tempDir+0、0 失败；RSS+170MB 观测项）
+- 计划 §5.6 ROB-04 门达标；entrypoint rob04 命令交付为可重跑 job

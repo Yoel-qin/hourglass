@@ -48,6 +48,12 @@
 - [x] 三层事实关联 schema + 诚实性规则（value.sandbox 提取、stderr 不升级、os_observation=unavailable）
 - [ ] Docker 内全量测试验证
 
+### 阶段 10：ROB-04 生命周期循环 — status: complete
+- [x] lifecycle/index.ts（@hourglass/lifecycle 包）：单进程 1000 次挂载/卸载/全插件 confine，测 fd/RSS/临时目录
+- [x] 100 次缩减版：PASS（fd+0、临时目录+0、0 失败）
+- [x] 1000 次完整版：PASS（fd+0、临时目录+0、0 失败；RSS +170MB 观测记录——cordis Context 分配曲线，非泄漏判据）
+- [x] entrypoint rob04 命令（ROB04_CYCLES 可调），可重跑 CI job 属性交付
+
 ### 阶段 9：NET-13 Harness 代调用边界 — status: complete
 - [x] case schema 扩展 tool 形态（harness 工具层调用，非沙箱 shell）；driver 增 web_fetch 工具（进程内 fetch，模拟真实 web-fetch 语义）
 - [x] v10 实测：DSH-PLUGIN NET-13 FAIL——服务端收到 canary，**Harness 代调用旁路被服务端证据证实**（计划的已知边界，P2 计划原文要求披露而非掩盖）
