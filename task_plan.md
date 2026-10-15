@@ -48,6 +48,14 @@
 - [x] 三层事实关联 schema + 诚实性规则（value.sandbox 提取、stderr 不升级、os_observation=unavailable）
 - [ ] Docker 内全量测试验证
 
+### 阶段 15：RES-07/08 + ROB-05/06（鲁棒性收官） — status: complete
+- [x] RES-07（取消收敛）：driver SIGTERM 后进程树全灭（pgrep -x sleep = 0）——die-with-parent 语义实测成立
+- [x] RES-08（并发配额不串线）：A（无上限）200MB 分配成功 ∥ B（100MB RLIMIT_AS）MemoryError 拒绝，同刻成立
+- [x] ROB-05（崩溃清理）：SIGKILL 遗留孤儿 runtime → 下一实例 sweepOrphanedRuntimes 探测死 socket 清扫后正常 confine
+- [x] ROB-06（重复挂载拒绝）：cordis 对二次 ctx.plugin() 静默启新 fiber（不拒绝）→ 插件自设 MOUNT_GUARD fail-closed 拒绝
+- [x] 判定假阳性清除 ×2：pgrep -f 'sleep 30' 自匹配 wrapper（改 -x 进程名匹配）；dshPlugin.execute notes 整体覆盖丢弃多会话证据（改合并不替换）
+- [x] v17 定稿（41×4=164）：DSH-PLUGIN 40/1/0（唯一 fail=NET-13 有意边界）；单测 89/89
+
 ### 阶段 13：变体 case 补齐（11 个新 case） — status: complete
 - [x] FS-07（硬链接/大小写变体）、FS-08（父目录 rename/delete 攻击）、FS-09（python/node 解释器变体）——全阻断
 - [x] NET-07（IPv6 loopback 隔离）、NET-09（大小写+尾点规范化一致性：allow 变体仍过=不误杀）、NET-11（并发双会话 allowlist 不串线：A 过/B 拒同刻成立）、NET-12（unix socket 直连代理仍受 allowlist）

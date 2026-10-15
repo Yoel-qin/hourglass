@@ -10,6 +10,7 @@
  */
 
 import { createHash } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, networkInterfaces } from 'node:os'
 import { join } from 'node:path'
@@ -161,6 +162,47 @@ function verdict(
         }
         return { status: 'fail', reason: `run ended too early (${raw.durationMs}ms) — the deadline was never exercised` }
       }
+      case 'cancel-converge': {
+        // RES-07: after SIGTERM, no sandboxed sleeper may survive anywhere.
+        // pgrep matches on the exact process NAME (comm), never the command
+        // line: a `-f 'sleep 30'` pattern would match this very check's
+        // `sh -c` wrapper (its own cmdline carries the literal) and report a
+        // phantom survivor.
+        if (escapedOutside.length > 0 || workspaceCreated.length > 0) {
+          return { status: 'fail', reason: 'side effects appeared despite the cancellation' }
+        }
+        const leftovers = spawnSync('sh', ['-c', 'pgrep -x sleep | wc -l'], { encoding: 'utf8', timeout: 5_000 })
+        const survivors = Number((leftovers.stdout ?? '0').trim())
+        return survivors === 0
+          ? { status: 'pass', reason: `process tree converged after SIGTERM (${raw.durationMs}ms), zero surviving sleepers` }
+          : { status: 'fail', reason: `${survivors} sandboxed sleeper(s) survived the cancellation` }
+      }
+      case 'crash-cleanup': {
+        // ROB-05: the SECOND driver must run cleanly and its plugin sweep must
+        // leave no orphaned runtime behind (its own live runtime is expected).
+        const secondOk = /SECOND_OK/.test(raw.stdout)
+        const listing = spawnSync('sh', ['-c', 'ls -1d /tmp/hourglass-net-* 2>/dev/null | wc -l'], { encoding: 'utf8', timeout: 5_000 })
+        const runtimes = Number((listing.stdout ?? '0').trim())
+        if (!secondOk) return { status: 'fail', reason: 'the second (sweeping) driver did not complete cleanly' }
+        return runtimes <= 1
+          ? { status: 'pass', reason: `post-crash sweep converged (runtimes remaining: ${runtimes} — the live one)` }
+          : { status: 'fail', reason: `${runtimes} runtime dirs remain after the sweep — orphan not cleaned` }
+      }
+      case 'dup-rejected': {
+        // ROB-06: the conflicting second load must be rejected loudly and the
+        // first instance must still serve confined commands.
+        let envelope: { duplicateRejected?: boolean; results?: { stdout?: string }[] } = {}
+        try {
+          envelope = JSON.parse(raw.stdout.trim().split('\n').at(-1) ?? '{}') as typeof envelope
+        } catch {
+          // fall through
+        }
+        const commandOk = envelope.results?.some(result => /dup-ok/.test(result.stdout ?? '')) === true
+        if (envelope.duplicateRejected === true && commandOk) {
+          return { status: 'pass', reason: 'duplicate plugin load rejected loudly; the single provider still confines and serves' }
+        }
+        return { status: 'fail', reason: `duplicateRejected=${String(envelope.duplicateRejected)}, commandOk=${String(commandOk)}` }
+      }
       case 'error-surface': {
         // ROB-01: fail-closed error, no file side effect. The base driver
         // reports ok:false + code=SANDBOX_UNAVAILABLE; the plugin driver
@@ -197,6 +239,18 @@ function verdict(
     case 'audit-records':
       return { status: 'unknown', reason: 'verdict handled by the caller' }
   }
+}
+
+/** RES-08: session A (uncapped) must complete; session B's refusal rides in the notes. */
+function verdictRes08(raw: RawExecution): { status: CaseResult['status']; reason: string } {
+  const aOk = /ALLOC_OK/.test(raw.stdout)
+  const bNote = raw.notes.find(note => note.includes('session B')) ?? ''
+  const bRefused = /memoryRefused=true/.test(bNote)
+  if (aOk && bRefused) {
+    return { status: 'pass', reason: 'uncapped session A allocated 200MB while the capped session B was refused — no quota cross-talk' }
+  }
+  if (!aOk) return { status: 'fail', reason: `the uncapped session A failed too — quota crossed sessions (${bNote.slice(0, 120)})` }
+  return { status: 'unknown', reason: `session B outcome inconclusive: ${bNote.slice(0, 120)}` }
 }
 
 function auditVerdict(caseId: string, raw: RawExecution): { status: CaseResult['status']; reason: string } {
@@ -356,7 +410,9 @@ async function main(): Promise<void> {
       const allowRequests = net.requestsFor(ALLOW_HOST).length - allowBefore
       const judged = caseDefinition.category === 'aud'
         ? auditVerdict(caseDefinition.id, raw)
-        : verdict(caseDefinition, raw, { ...fsDiff, created: [...fsDiff.created, ...workspaceDiff.created] }, denyRequests, allowRequests, fixtures.outside)
+        : caseDefinition.id === 'RES-08'
+          ? verdictRes08(raw)
+          : verdict(caseDefinition, raw, { ...fsDiff, created: [...fsDiff.created, ...workspaceDiff.created] }, denyRequests, allowRequests, fixtures.outside)
       results.push({
         runId, subject: adapter.id, caseId, profile: caseDefinition.profile,
         status: judged.status, expected: caseDefinition.expectation,

@@ -64,6 +64,147 @@ function runNode(script: string, input: unknown, env: NodeJS.ProcessEnv, timeout
 }
 
 /**
+ * RES-07: spawn the sleeper command, SIGTERM the driver child mid-flight,
+ * and report; the verdict converges the process tree via pgrep.
+ */
+async function runRes07(command: string, env: RunEnv): Promise<RawExecution> {
+  const startedAt = Date.now()
+  const request = {
+    commands: [{ callId: 'res-07', tool: 'sh', arguments: { command } }],
+    mode: 'workspace-write' as const,
+    workspaceRoot: env.context.workspace,
+    cwd: env.context.workspace,
+    ledgerPath: '/tmp/hourglass-res07.jsonl',
+  }
+  const raw = await new Promise<RawExecution>(resolve => {
+    const child = spawn(process.execPath, ['--experimental-strip-types', PLUGIN_DRIVER], {
+      cwd: DSH_ROOT,
+      env: { ...process.env, ...env.env },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', chunk => {
+      stdout += String(chunk)
+    })
+    child.stderr.on('data', chunk => {
+      stderr += String(chunk)
+    })
+    child.stdin.write(`${JSON.stringify(request)}\n`)
+    child.stdin.end()
+    const term = setTimeout(() => child.kill('SIGTERM'), 3_000)
+    const hardKill = setTimeout(() => child.kill('SIGKILL'), 15_000)
+    child.on('close', () => {
+      clearTimeout(term)
+      clearTimeout(hardKill)
+      resolve({ exitCode: child.exitCode, stdout, stderr, durationMs: Date.now() - startedAt, notes: ['RES-07: driver SIGTERMed 3s into a 30s command'] })
+    })
+  })
+  // Let any survivor show itself before the verdict greps.
+  await new Promise(resolve => setTimeout(resolve, 1_500))
+  return raw
+}
+
+/**
+ * RES-08: session A (no caps) and session B (100MB RLIMIT_AS) run the same
+ * 200MB allocation concurrently; A must succeed while B is refused.
+ */
+async function runRes08(command: string, env: RunEnv): Promise<RawExecution> {
+  const startedAt = Date.now()
+  const base = {
+    mode: 'workspace-write' as const,
+    workspaceRoot: env.context.workspace,
+    cwd: env.context.workspace,
+  }
+  const sessionA = { ...base, ledgerPath: '/tmp/hourglass-res08-a.jsonl', commands: [{ callId: 'res-08-a', tool: 'sh', arguments: { command } }] }
+  const sessionB = {
+    ...base,
+    ledgerPath: '/tmp/hourglass-res08-b.jsonl',
+    rsrc: { asBytes: 100 * 1024 * 1024 },
+    commands: [{ callId: 'res-08-b', tool: 'sh', arguments: { command } }],
+  }
+  const [a, b] = await Promise.all([
+    runNode([PLUGIN_DRIVER], sessionA, env.env, 60_000),
+    runNode([PLUGIN_DRIVER], sessionB, env.env, 60_000),
+  ])
+  // The refusal signature (MemoryError) sits in the FRONT of B's driver JSON
+  // (the results array), not the tail (ledger records) — extract it here so
+  // the verdict does not depend on JSON layout.
+  const bRefused = /MemoryError|Cannot allocate/.test(b.stdout) || /MemoryError|Cannot allocate/.test(b.stderr)
+  return {
+    ...a,
+    durationMs: Date.now() - startedAt,
+    notes: [
+      `RES-08 session A (uncapped) exit=${String(a.exitCode)}`,
+      `RES-08 session B (100MB cap) exit=${String(b.exitCode)} memoryRefused=${bRefused} head=${b.stdout.slice(0, 160)}`,
+    ],
+  }
+}
+
+/**
+ * ROB-05: driver 1 mounts the net plugin (runtime created) and sleeps;
+ * SIGKILL leaves the runtime behind. Driver 2 then starts normally — its
+ * plugin sweep must remove the orphan and confine cleanly.
+ */
+async function runRob05(command: string, env: RunEnv): Promise<RawExecution> {
+  const startedAt = Date.now()
+  const base = {
+    mode: 'workspace-write' as const,
+    workspaceRoot: env.context.workspace,
+    cwd: env.context.workspace,
+    net: { mode: 'allowlist' as const, allowlist: [ALLOW_HOST] },
+  }
+  const victim = {
+    ...base,
+    ledgerPath: '/tmp/hourglass-rob05-1.jsonl',
+    commands: [{ callId: 'rob05-victim', tool: 'sh', arguments: { command } }],
+  }
+  await new Promise<void>(resolve => {
+    const child = spawn(process.execPath, ['--experimental-strip-types', PLUGIN_DRIVER], {
+      cwd: DSH_ROOT,
+      env: { ...process.env, ...env.env },
+      stdio: ['pipe', 'ignore', 'ignore'],
+    })
+    child.stdin.write(`${JSON.stringify(victim)}\n`)
+    child.stdin.end()
+    setTimeout(() => {
+      child.kill('SIGKILL')
+      resolve()
+    }, 3_000)
+    child.on('close', () => resolve())
+  })
+  const second = {
+    ...base,
+    ledgerPath: '/tmp/hourglass-rob05-2.jsonl',
+    commands: [{ callId: 'rob05-second', tool: 'sh', arguments: { command: 'echo SECOND_OK' } }],
+  }
+  const raw = await runNode([PLUGIN_DRIVER], second, env.env, 60_000)
+  return {
+    ...raw,
+    durationMs: Date.now() - startedAt,
+    notes: ['ROB-05: driver 1 SIGKILLed mid-run (orphaned runtime expected)', 'ROB-05: driver 2 started; its plugin sweep must clear the orphan'],
+  }
+}
+
+/**
+ * ROB-06: the driver mounts the net plugin twice with conflicting configs;
+ * the duplicate must be rejected loudly (duplicateRejected=true in the
+ * response) with the first instance's semantics intact.
+ */
+async function runRob06(command: string, env: RunEnv): Promise<RawExecution> {
+  const request = {
+    commands: [{ callId: 'rob-06', tool: 'sh', arguments: { command } }],
+    mode: 'workspace-write' as const,
+    workspaceRoot: env.context.workspace,
+    cwd: env.context.workspace,
+    ledgerPath: '/tmp/hourglass-rob06.jsonl',
+    net: { mode: 'allowlist' as const, allowlist: [ALLOW_HOST] },
+    doubleNet: { mode: 'deny-all' as const, allowlist: [] },
+  }
+  return runNode([PLUGIN_DRIVER], request, env.env, 60_000)
+}
+
+/**
  * NET-11 concurrent dual-session run: session A (allowlisted) must reach the
  * allow endpoint at the same time session B (empty allowlist) is denied —
  * proving allowlists do not leak across concurrent driver sessions. The
@@ -240,10 +381,22 @@ export const dshPlugin: SubjectAdapter = {
       ? await runNet14(caseDefinition.id, command, env)
       : caseDefinition.id === 'NET-11'
         ? await runNet11(caseDefinition.id, command, env)
-        : await runNode([PLUGIN_DRIVER], request, env.env, 90_000)
+        : caseDefinition.id === 'RES-07'
+          ? await runRes07(command, env)
+          : caseDefinition.id === 'RES-08'
+            ? await runRes08(command, env)
+            : caseDefinition.id === 'ROB-05'
+              ? await runRob05(command, env)
+              : caseDefinition.id === 'ROB-06'
+                ? await runRob06(command, env)
+                : await runNode([PLUGIN_DRIVER], request, env.env, 90_000)
     return {
       ...raw,
       notes: [
+        // Merge, never replace: multi-session runners (RES-08, NET-11/14)
+        // park their per-session evidence in raw.notes and the verdicts read
+        // it back from there.
+        ...(raw.notes ?? []),
         `driver: ${PLUGIN_DRIVER}`,
         `ledger: ${ledgerPath}`,
         ...(net === undefined ? [] : [`net: ${JSON.stringify(net)}`]),

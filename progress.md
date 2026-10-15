@@ -128,3 +128,10 @@
 - 亮点：NET-11 并发双会话（A 放行/B 拒绝同刻成立）；RES-05 fsize 实测恰好截停在 64KB；
   RES-02 exit 137 信号识别；NET-09 大写+尾点 allow host 仍放行（不误杀）
 - v15 定稿（37×4=148）：DSH-PLUGIN 36/1/0（唯一 fail=NET-13 有意边界，零 unknown）
+
+## 会话 2 续 7（RES-07/08 + ROB-05/06）
+
+- net 包：sweepOrphanedRuntimes（socket 存活探测，死 socket 目录清扫）+ MOUNT_GUARD 防重入（cordis 复用 runtime 静默启第二个 fiber，插件自身拒绝二次挂载）；单测 +2 → 89
+- driver：doubleNet 请求字段（二次挂载 try/catch → duplicateRejected）
+- 判定假阳性清除：①pgrep -f 'sleep 30' 匹配到判定自身的 sh -c wrapper（命令行含字面量）→ 改 pgrep -x sleep 进程名匹配，实测 ps 树本就零幸存；②adapter 返回 notes 整体覆盖 raw.notes → RES-08 会话 B 证据丢失 + MemoryError 在 driver JSON 前部而 slice(-140) 取尾部 → notes 合并 + memoryRefused 特征前置提取
+- v17 定稿（41×4=164）：DSH-PLUGIN 40/1/0；其余 lane fail 数与 v15 完全一致（无回归）

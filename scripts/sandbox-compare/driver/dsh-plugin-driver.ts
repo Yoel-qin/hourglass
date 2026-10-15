@@ -30,6 +30,8 @@ interface PluginDriverRequest {
   netFail?: boolean
   /** AUD-15: run without any confinement (danger semantics) — the audit trail must still record it. */
   danger?: boolean
+  /** ROB-06: attempt a SECOND net-plugin load with a conflicting config; the duplicate must be rejected loudly. */
+  doubleNet?: { mode: 'allowlist' | 'deny-all' | 'unrestricted'; allowlist?: string[] }
   /** P2-DENY-READ cases: sensitive paths shadowed by tmpfs inside the sandbox. */
   readDeny?: string[]
   /** P4 cases: kernel-enforced hard caps injected via prlimit. */
@@ -44,11 +46,14 @@ interface PluginDriverResponse {
   results: { callId: string; isError: boolean; error?: { code?: string; message: string }; stdout: string; stderr: string }[]
   ledger: unknown[]
   error?: string
+  /** ROB-06: whether the conflicting second plugin load was rejected. */
+  duplicateRejected?: boolean
 }
 
 async function main(): Promise<void> {
   const request = JSON.parse(readFileSync(0, 'utf8')) as PluginDriverRequest
   const ctx = new Context()
+  const response: PluginDriverResponse = { ok: true, results: [], ledger: [] }
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(LocalSandboxProvider, request.runnerCommand === undefined ? {} : { runnerCommand: request.runnerCommand })
   if (request.forceChain !== undefined) {
@@ -67,6 +72,21 @@ async function main(): Promise<void> {
   }
   if (request.rsrc !== undefined) {
     await ctx.plugin(RsrcPlugin, request.rsrc)
+  }
+  if (request.doubleNet !== undefined) {
+    // ROB-06: a second, conflicting load must throw — never a silent second
+    // provider. The rejection is recorded and the FIRST instance keeps its
+    // semantics.
+    try {
+      await ctx.plugin(NetPlugin, {
+        mode: request.doubleNet.mode,
+        allowlist: request.doubleNet.allowlist ?? [],
+        decisionLog: `${request.ledgerPath}.dup-decisions.jsonl`,
+      })
+      response.duplicateRejected = false
+    } catch {
+      response.duplicateRejected = true
+    }
   }
   if (request.netFail === true && request.net !== undefined) {
     // Phase 1 confine reveals the proxy socket path (the --ro-bind whose
@@ -203,7 +223,6 @@ async function main(): Promise<void> {
     },
   }))
   const signal = new AbortController().signal
-  const response: PluginDriverResponse = { ok: true, results: [], ledger: [] }
   for (const command of request.commands) {
     const result = await ctx.tools.execute({
       signal,

@@ -164,6 +164,52 @@ describe('confine rewriting', () => {
   })
 })
 
+describe('sweepOrphanedRuntimes (ROB-05)', () => {
+  it('removes dirs whose socket is gone or dead, keeps live ones', async () => {
+    const root = tempDir()
+    const { mkdirSync: mk, writeFileSync: wf } = await import('node:fs')
+    const orphanNoSocket = join(root, 'hourglass-net-a')
+    const orphanDeadSocket = join(root, 'hourglass-net-b')
+    const liveDir = join(root, 'hourglass-net-c')
+    mk(orphanNoSocket)
+    mk(orphanDeadSocket)
+    mk(liveDir)
+    wf(join(orphanDeadSocket, 'proxy.sock'), 'not a socket')
+    const proxy = await startEgressProxy(join(liveDir, 'proxy.sock'), { mode: 'deny-all', allowlist: [] })
+    try {
+      const removed = await (await import('../src/index.ts')).sweepOrphanedRuntimes(root)
+      expect(removed).toBe(2)
+      expect(existsSync(orphanNoSocket)).toBe(false)
+      expect(existsSync(orphanDeadSocket)).toBe(false)
+      expect(existsSync(liveDir)).toBe(true)
+    } finally {
+      await proxy.stop()
+    }
+  })
+})
+
+describe('ROB-06 duplicate plugin load', () => {
+  class FakeProvider extends SandboxProvider {
+    async confine(argv: readonly string[]): Promise<ConfinedArgv> {
+      return { argv: [...argv], enforcement: 'full', denialSignatures: [], runnerFailureRules: [] }
+    }
+  }
+
+  it('loading the same plugin twice on one context is rejected loudly, never a silent double provider', async () => {
+    const ctx = new Context()
+    await ctx.plugin(FakeProvider)
+    const first = await ctx.plugin(NetPlugin, { mode: 'allowlist', allowlist: ['a.test'] })
+    await expect(ctx.plugin(NetPlugin, { mode: 'deny-all', allowlist: [] })).rejects.toThrow()
+    // The first instance's semantics are intact and disposal still restores.
+    const wrapped = await ctx.sandbox.confine(['bwrap', '--', 'true'])
+    expect(wrapped.argv).toContain('--unshare-net')
+    await first.dispose()
+    const after = await ctx.sandbox.confine(['bwrap', '--', 'true'])
+    expect(after.argv).toEqual(['bwrap', '--', 'true'])
+    await ctx.fiber.dispose()
+  })
+})
+
 describe('hourglass-sandbox-net plugin', () => {
   class FakeProvider extends SandboxProvider {
     async confine(argv: readonly string[]): Promise<ConfinedArgv> {
