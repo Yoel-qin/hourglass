@@ -376,6 +376,7 @@ export const dshPlugin: SubjectAdapter = {
       ...(caseDefinition.id === 'ROB-01'
         ? { runnerCommand: ['/nonexistent/hourglass-rob-runner'], forceChain: ['bwrap'] }
         : {}),
+      ...(caseDefinition.id === 'AUD-09' ? { auditChain: true } : {}),
     }
     const raw = caseDefinition.id === 'NET-14'
       ? await runNet14(caseDefinition.id, command, env)

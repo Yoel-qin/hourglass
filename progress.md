@@ -135,3 +135,12 @@
 - driver：doubleNet 请求字段（二次挂载 try/catch → duplicateRejected）
 - 判定假阳性清除：①pgrep -f 'sleep 30' 匹配到判定自身的 sh -c wrapper（命令行含字面量）→ 改 pgrep -x sleep 进程名匹配，实测 ps 树本就零幸存；②adapter 返回 notes 整体覆盖 raw.notes → RES-08 会话 B 证据丢失 + MemoryError 在 driver JSON 前部而 slice(-140) 取尾部 → notes 合并 + memoryRefused 特征前置提取
 - v17 定稿（41×4=164）：DSH-PLUGIN 40/1/0；其余 lane fail 数与 v15 完全一致（无回归）
+
+## 会话 2 续 8（AUD-09/10 + ADR-002）
+
+- ledger hash chain：append 建链（GENESIS→prevHash→hash 覆盖记录原文），verifyAuditChain 校验
+  （篡改字段=hash 不匹配、删行/重排=断链，均报首个受影响 seq）
+- driver auditChain 模式：原样 verify + 篡改副本（翻转 end 记录 outcome.kind）+ 删行副本，三段结果进响应
+- AUD-09/10 case 判定只认响应字段（与 ROB-06 duplicateRejected 同模式）；判定 switch 补 tamper-detected/fact-chain 枚举
+- ADR-002：RES_QUOTAS 阈值三原则（必然越限/不误伤/看门狗余量），满足计划"阈值须 ADR 确定"的诚实性规则
+- v18 定稿（43×4=172）：DSH-PLUGIN 42/1/0；其余 lane 零回归；单测 94/94

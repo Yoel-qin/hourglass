@@ -39,6 +39,8 @@ interface PluginDriverRequest {
   /** ROB-01 supports: force a single-rung chain with a missing runner. */
   runnerCommand?: string[]
   forceChain?: string[]
+  /** AUD-09: after the commands run, verify the ledger hash chain intact, then again with a field-tampered copy and a line-removed copy. */
+  auditChain?: boolean
 }
 
 interface PluginDriverResponse {
@@ -48,6 +50,15 @@ interface PluginDriverResponse {
   error?: string
   /** ROB-06: whether the conflicting second plugin load was rejected. */
   duplicateRejected?: boolean
+  /** AUD-09: intact chain verifies; tampered and removed-line copies must both fail. */
+  chainCheck?: {
+    intactOk: boolean
+    tamperDetected: boolean
+    removalDetected: boolean
+    intactReason?: string
+    tamperReason?: string
+    removalReason?: string
+  }
 }
 
 async function main(): Promise<void> {
@@ -242,6 +253,36 @@ async function main(): Promise<void> {
   }
   const ledgerText = readFileSync(request.ledgerPath, 'utf8').trim()
   response.ledger = ledgerText === '' ? [] : ledgerText.split('\n').map(line => JSON.parse(line) as unknown)
+  if (request.auditChain === true) {
+    // AUD-09: the chain as written must verify clean; a copy with one end
+    // record's outcome flipped, and a copy with the second line removed, must
+    // both fail — tamper evidence, not tamper resistance.
+    const { verifyAuditChain } = await import('@hourglass/sandbox-audit/src/ledger.ts')
+    const { writeFileSync: writeCopy } = await import('node:fs')
+    const intact = verifyAuditChain(request.ledgerPath)
+    const lines = ledgerText.split('\n').filter(line => line !== '')
+    const flipTarget = lines.find(line => (JSON.parse(line) as { kind?: string; outcome?: { kind?: string } }).kind === 'end')
+    const tamperedLines = lines.map(line => {
+      if (line !== flipTarget) return line
+      const parsed = JSON.parse(line) as { outcome: { kind: string } }
+      parsed.outcome.kind = 'policy-deny'
+      return JSON.stringify(parsed)
+    })
+    const tamperCopy = `${request.ledgerPath}.tampered.jsonl`
+    writeCopy(tamperCopy, `${tamperedLines.join('\n')}\n`, 'utf8')
+    const tampered = verifyAuditChain(tamperCopy)
+    const removalCopy = `${request.ledgerPath}.removed.jsonl`
+    writeCopy(removalCopy, `${lines.filter((_, index) => index !== 1).join('\n')}\n`, 'utf8')
+    const removed = verifyAuditChain(removalCopy)
+    response.chainCheck = {
+      intactOk: intact.ok,
+      tamperDetected: !tampered.ok,
+      removalDetected: !removed.ok,
+      ...(intact.ok ? {} : { intactReason: intact.reason }),
+      ...(tampered.ok ? {} : { tamperReason: tampered.reason }),
+      ...(removed.ok ? {} : { removalReason: removed.reason }),
+    }
+  }
   process.stdout.write(`${JSON.stringify(response)}\n`)
   await ctx.fiber.dispose()
 }

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { AuditLedger, AuditLedgerError } from '../src/ledger.ts'
+import { AuditLedger, AuditLedgerError, verifyAuditChain } from '../src/ledger.ts'
 import type { AuditBeginRecord, AuditEndRecord } from '../src/types.ts'
 
 const dirs: string[] = []
@@ -141,5 +141,71 @@ describe('AuditLedger', () => {
     } finally {
       mkdirSync(dir, { recursive: true })
     }
+  })
+})
+
+describe('AUD-09 hash chain', () => {
+  it('chains every record and an untouched file verifies clean', () => {
+    const path = tempLedgerPath()
+    const ledger = new AuditLedger({ path })
+    ledger.append(beginFixture('c1'))
+    ledger.append(endFixture('c1'))
+    ledger.append(beginFixture('c2'))
+    const verification = verifyAuditChain(path)
+    expect(verification.ok).toBe(true)
+    const lines = readFileSync(path, 'utf8').split('\n').filter(line => line !== '')
+    const records = lines.map(line => JSON.parse(line) as { prevHash?: string; hash?: string; seq: number })
+    expect(records[0].prevHash).toBe('0'.repeat(64))
+    expect(records[1].prevHash).toBe(records[0].hash)
+    expect(records[2].prevHash).toBe(records[1].hash)
+  })
+
+  it('detects a tampered field at the exact record', () => {
+    const path = tempLedgerPath()
+    const ledger = new AuditLedger({ path })
+    ledger.append(beginFixture('c1'))
+    ledger.append(endFixture('c1'))
+    ledger.append(beginFixture('c2'))
+    const lines = readFileSync(path, 'utf8').split('\n').filter(line => line !== '')
+    const tampered = lines.map(line => {
+      const parsed = JSON.parse(line) as { seq: number; outcome?: { kind: string } }
+      if (parsed.seq === 2 && parsed.outcome !== undefined) parsed.outcome.kind = 'policy-deny'
+      return JSON.stringify(parsed)
+    })
+    writeFileSync(path, `${tampered.join('\n')}\n`, 'utf8')
+    const verification = verifyAuditChain(path)
+    expect(verification.ok).toBe(false)
+    expect(verification.firstBadSeq).toBe(2)
+    expect(verification.reason).toContain('tampered')
+  })
+
+  it('detects a removed middle line as a broken chain', () => {
+    const path = tempLedgerPath()
+    const ledger = new AuditLedger({ path })
+    ledger.append(beginFixture('c1'))
+    ledger.append(endFixture('c1'))
+    ledger.append(beginFixture('c2'))
+    const lines = readFileSync(path, 'utf8').split('\n').filter(line => line !== '')
+    writeFileSync(path, `${lines.filter((_, index) => index !== 1).join('\n')}\n`, 'utf8')
+    const verification = verifyAuditChain(path)
+    expect(verification.ok).toBe(false)
+    expect(verification.reason).toContain('chain')
+  })
+
+  it('detects reordered records', () => {
+    const path = tempLedgerPath()
+    const ledger = new AuditLedger({ path })
+    ledger.append(beginFixture('c1'))
+    ledger.append(endFixture('c1'))
+    const lines = readFileSync(path, 'utf8').split('\n').filter(line => line !== '')
+    writeFileSync(path, `${[lines[1], lines[0]].join('\n')}\n`, 'utf8')
+    expect(verifyAuditChain(path).ok).toBe(false)
+  })
+
+  it('refuses to bless chain-less or unreadable ledgers', () => {
+    const plain = tempLedgerPath()
+    writeFileSync(plain, `${JSON.stringify({ hello: 1 })}\n`, 'utf8')
+    expect(verifyAuditChain(plain).ok).toBe(false)
+    expect(verifyAuditChain(join(tmpdir(), 'hourglass-no-such-ledger.jsonl')).ok).toBe(false)
   })
 })

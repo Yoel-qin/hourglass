@@ -11,7 +11,7 @@
  */
 
 import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { AuditQuery, AuditQueryResult, AuditRecord } from './types.ts'
 
 /** Raised in strict mode when the ledger cannot persist a record. */
@@ -60,6 +60,69 @@ function isAuditRecord(value: unknown): value is AuditRecord {
     && (record.kind === 'begin' || record.kind === 'end')
     && typeof record.runId === 'string'
     && typeof record.seq === 'number'
+}
+
+/** The all-zero digest the first record's `prevHash` chains from (AUD-09). */
+export const GENESIS_HASH = '0'.repeat(64)
+
+/** SHA-256 of a record's canonical JSON (the record itself, without `hash`). */
+function recordHash(record: Record<string, unknown>): string {
+  return createHash('sha256').update(JSON.stringify(record), 'utf8').digest('hex')
+}
+
+/** Outcome of {@link verifyAuditChain}. */
+export interface ChainVerification {
+  readonly ok: boolean
+  /** Sequence number of the first record that failed verification. */
+  readonly firstBadSeq?: number
+  readonly reason?: string
+}
+
+/**
+ * Verify a ledger file's hash chain end to end (AUD-09). Every line must
+ * parse, carry `hash`/`prevHash`, hash to its own recorded digest, and chain
+ * to the previous record (the first to the genesis). Any tampered field,
+ * removed line, or reordering breaks the chain and is reported with the
+ * first offending `seq`; an unreadable or empty file fails honestly.
+ */
+export function verifyAuditChain(path: string): ChainVerification {
+  let content: string
+  try {
+    content = readFileSync(path, 'utf8')
+  } catch (error) {
+    return { ok: false, reason: `ledger unreadable: ${error instanceof Error ? error.message : String(error)}` }
+  }
+  let expectedPrev = GENESIS_HASH
+  let sawRecord = false
+  for (const line of content.split('\n')) {
+    if (line === '') continue
+    sawRecord = true
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(line)
+    } catch {
+      return { ok: false, reason: 'a line is not valid JSON' }
+    }
+    if (parsed === null || typeof parsed !== 'object') {
+      return { ok: false, reason: 'a line is not a record object' }
+    }
+    const record = parsed as Record<string, unknown>
+    const seq = record.seq
+    if (typeof record.hash !== 'string' || typeof record.prevHash !== 'string') {
+      return { ok: false, firstBadSeq: typeof seq === 'number' ? seq : undefined, reason: 'record missing hash-chain fields' }
+    }
+    if (record.prevHash !== expectedPrev) {
+      return { ok: false, firstBadSeq: typeof seq === 'number' ? seq : undefined, reason: 'prevHash does not chain to the previous record (removed, reordered, or spliced line)' }
+    }
+    const withoutHash: Record<string, unknown> = { ...record }
+    delete withoutHash.hash
+    if (recordHash(withoutHash) !== record.hash) {
+      return { ok: false, firstBadSeq: typeof seq === 'number' ? seq : undefined, reason: 'record content does not match its recorded hash (tampered field)' }
+    }
+    expectedPrev = record.hash
+  }
+  if (!sawRecord) return { ok: false, reason: 'ledger contains no records' }
+  return { ok: true }
 }
 
 export class AuditLedger {
@@ -116,7 +179,15 @@ export class AuditLedger {
    * {@link diagnostics}.
    */
   append(record: Omit<AuditRecord, 'runId' | 'seq'>): AuditRecord {
-    const full = { ...record, runId: this.runId, seq: this.nextSeq++ } as AuditRecord
+    // Hash chain (AUD-09): the digest covers the record exactly as written
+    // (key order included), so any later edit, removal, or reorder of a line
+    // breaks verification at the first affected seq.
+    const prevHash = this.records.length > 0 && this.records[this.records.length - 1].hash !== undefined
+      ? this.records[this.records.length - 1].hash
+      : GENESIS_HASH
+    const chained = { ...record, runId: this.runId, seq: this.nextSeq++, prevHash } as AuditRecord
+    const hash = recordHash(chained as unknown as Record<string, unknown>)
+    const full = { ...chained, hash } as AuditRecord
     const line = `${JSON.stringify(full)}\n`
     try {
       appendFileSync(this.options.path, line, { encoding: 'utf8' })

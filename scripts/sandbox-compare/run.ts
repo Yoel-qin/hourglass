@@ -237,6 +237,8 @@ function verdict(
       return { status: 'fail', reason: 'allow endpoint received no request (over-restriction or no network path)' }
     case 'error-message':
     case 'audit-records':
+    case 'tamper-detected':
+    case 'fact-chain':
       return { status: 'unknown', reason: 'verdict handled by the caller' }
   }
 }
@@ -254,7 +256,12 @@ function verdictRes08(raw: RawExecution): { status: CaseResult['status']; reason
 }
 
 function auditVerdict(caseId: string, raw: RawExecution): { status: CaseResult['status']; reason: string } {
-  let parsed: { ok: boolean; ledger?: Record<string, unknown>[]; error?: string }
+  let parsed: {
+    ok: boolean
+    ledger?: Record<string, unknown>[]
+    error?: string
+    chainCheck?: { intactOk: boolean; tamperDetected: boolean; removalDetected: boolean; intactReason?: string; tamperReason?: string; removalReason?: string }
+  }
   try {
     parsed = JSON.parse(raw.stdout.trim().split('\n').at(-1) ?? '{}') as typeof parsed
   } catch {
@@ -263,6 +270,26 @@ function auditVerdict(caseId: string, raw: RawExecution): { status: CaseResult['
   if (!parsed.ok) return { status: 'fail', reason: `plugin driver failed: ${parsed.error ?? 'unknown'}` }
   const ledger = parsed.ledger ?? []
   const ends = ledger.filter(record => record.kind === 'end') as { outcome?: { kind?: string }; backend?: { source?: string; denied?: boolean } }[]
+  if (caseId === 'AUD-09') {
+    const check = parsed.chainCheck
+    if (check === undefined) return { status: 'fail', reason: 'driver produced no chainCheck for AUD-09' }
+    if (!check.intactOk) return { status: 'fail', reason: `the untouched chain failed to verify: ${check.intactReason ?? 'no reason'}` }
+    if (!check.tamperDetected || !check.removalDetected) {
+      return { status: 'fail', reason: `tamper NOT detected (field=${check.tamperDetected}, removal=${check.removalDetected}) — integrity claim would be false` }
+    }
+    return { status: 'pass', reason: `intact chain verifies; tampering (${check.tamperReason ?? 'field flip'}) and line removal (${check.removalReason ?? 'splice'}) both detected` }
+  }
+  if (caseId === 'AUD-10') {
+    const begins = ledger.filter(record => record.kind === 'begin') as { callId?: string }[]
+    const detailedEnds = ends as { callId?: string; backend?: { source?: string }; osObservation?: { status?: string } }[]
+    if (begins.length === 0) return { status: 'fail', reason: 'no begin records — no fact chain to correlate' }
+    const paired = begins.every(begin => detailedEnds.some(end => end.callId === begin.callId))
+    if (!paired) return { status: 'fail', reason: 'a begin record has no end counterpart for its callId' }
+    const layered = detailedEnds.every(end => end.backend?.source !== undefined && end.osObservation?.status === 'unavailable')
+    return layered
+      ? { status: 'pass', reason: `every call correlates begin+end by callId; backend source present and os layer honestly 'unavailable' (${begins.length} call(s))` }
+      : { status: 'fail', reason: 'an end record is missing its backend source or the honest os-observation status' }
+  }
   if (caseId === 'AUD-02') {
     const kinds = new Set(ends.map(record => record.outcome?.kind))
     const distinctEnough = kinds.has('sandbox-denial') && kinds.has('ordinary-failure')

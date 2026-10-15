@@ -56,6 +56,14 @@
 - [x] 判定假阳性清除 ×2：pgrep -f 'sleep 30' 自匹配 wrapper（改 -x 进程名匹配）；dshPlugin.execute notes 整体覆盖丢弃多会话证据（改合并不替换）
 - [x] v17 定稿（41×4=164）：DSH-PLUGIN 40/1/0（唯一 fail=NET-13 有意边界）；单测 89/89
 
+### 阶段 16：AUD-09 hash chain + AUD-10 事实链 + ADR-002 — status: complete
+- [x] audit ledger hash chain：每条记录 SHA-256（prevHash 链自 GENESIS，hash 覆盖记录原文）——verifyAuditChain 纯函数校验
+- [x] AUD-09（审计完整性）：原样链验证通过 ∥ 字段篡改检出（hash 不匹配）∥ 删行检出（断链）——三段判定全成立才 pass
+- [x] AUD-10（三层事实关联）：每个 callId 有 begin+end 对、backend.source 在场、os 层如实 unavailable
+- [x] ADR-002：RES_QUOTAS 五项阈值的选定依据（超限必然越限/正常必然不误伤/看门狗余量三原则）
+- [x] 诚实边界：hash chain 是检测性能力（篡改可发现）而非抵抗性（不阻止破坏账本文件）——README/final-report 如实标注
+- [x] v18 定稿（43×4=172）：DSH-PLUGIN 42/1/0；单测 94/94（新增 5 个 chain 测试）
+
 ### 阶段 13：变体 case 补齐（11 个新 case） — status: complete
 - [x] FS-07（硬链接/大小写变体）、FS-08（父目录 rename/delete 攻击）、FS-09（python/node 解释器变体）——全阻断
 - [x] NET-07（IPv6 loopback 隔离）、NET-09（大小写+尾点规范化一致性：allow 变体仍过=不误杀）、NET-11（并发双会话 allowlist 不串线：A 过/B 拒同刻成立）、NET-12（unix socket 直连代理仍受 allowlist）

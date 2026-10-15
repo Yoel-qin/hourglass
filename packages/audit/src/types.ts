@@ -87,8 +87,21 @@ export interface AuditErrorFacts {
   readonly reason?: string
 }
 
+/**
+ * Hash-chain fields (AUD-09). Every record written by the ledger carries the
+ * SHA-256 of its own canonical JSON (`hash`) and of the record before it
+ * (`prevHash`; the first record chains from the all-zero genesis). The pair
+ * makes any tampered, removed, or reordered line detectable by
+ * {@link verifyAuditChain}; absence of the fields is itself a verification
+ * failure, never silently tolerated.
+ */
+export interface AuditChainFields {
+  readonly prevHash?: string
+  readonly hash?: string
+}
+
 /** Pre-dispatch record: what the policy said before the call ran. */
-export interface AuditBeginRecord {
+export interface AuditBeginRecord extends AuditChainFields {
   readonly schema: AuditSchemaTag
   readonly kind: 'begin'
   readonly runId: string
@@ -104,7 +117,7 @@ export interface AuditBeginRecord {
 }
 
 /** Final record: how the call ended and what each layer actually reported. */
-export interface AuditEndRecord {
+export interface AuditEndRecord extends AuditChainFields {
   readonly schema: AuditSchemaTag
   readonly kind: 'end'
   readonly runId: string

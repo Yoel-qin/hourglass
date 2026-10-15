@@ -49,7 +49,7 @@ docker run --rm --privileged -v "$(pwd)/reports:/opt/reports" \
   hourglass-test /usr/local/bin/hourglass-entrypoint run-all
 
 # 或分项运行：gates | unit | compare | perf | rob04
-# 全量矩阵（41 case × 4 subject）：
+# 全量矩阵（43 case × 4 subject）：
 docker run --rm --privileged -v "$(pwd)/reports:/opt/reports" --entrypoint bash hourglass-test -c \
   'cd /opt/dsh && node --experimental-strip-types /opt/hourglass/scripts/sandbox-compare/run.ts --smoke=all --out=/opt/reports/runs/my-run'
 
@@ -62,22 +62,23 @@ Docker Desktop on WSL2 对非特权容器阻止这些调用（实测）。容器
 环境：不挂载宿主目录（除 reports 输出），测试数据全部为合成 canary
 （`DSH_SYNTHETIC_CANARY_*`）。
 
-## 对比矩阵（v17：41 case × 4 subject = 164 结果）
+## 对比矩阵（v18：43 case × 4 subject = 172 结果）
 
 | 对象 | pass / fail / unsupported | 说明 |
 |---|---|---|
-| **DSH-PLUGIN** | **40 / 1 / 0** | 唯一 fail = NET-13 有意暴露的 Harness 代调用边界（该调用已被完整审计） |
-| DSH-BASE | 14 / 12 / 15 | 插件前基线的诚实缺口画像 |
-| SRT 0.0.79 | 19 / 2 / 20 | NET-01 = 环境限制（SSRF 防护拒本机地址）；RES-04 = CAP 豁免 |
-| NSJAIL 3.6 | 20 / 3 / 18 | 机制差异如实呈现（netns 无 allowlist 通道等） |
+| **DSH-PLUGIN** | **42 / 1 / 0** | 唯一 fail = NET-13 有意暴露的 Harness 代调用边界（该调用已被完整审计） |
+| DSH-BASE | 14 / 12 / 17 | 插件前基线的诚实缺口画像 |
+| SRT 0.0.79 | 19 / 2 / 22 | NET-01 = 环境限制（SSRF 防护拒本机地址）；RES-04 = CAP 豁免 |
+| NSJAIL 3.6 | 20 / 3 / 20 | 机制差异如实呈现（netns 无 allowlist 通道等） |
 | Codex 0.162.1 | — | 整体 not-run（无 OpenAI 凭证，versions.lock 声明） |
 
 case 覆盖：FS（01-09/10/11/12，含穿越/symlink/硬链接/父目录攻击/解释器变体）、
 NET（01-07/09-14，含代理剥离/IP 直连/原生 TCP/IPv6/并发会话/unix-socket/
 代调用/生命周期）、RES（01-08，墙钟/CPU/内存/进程数/文件大小/fd/取消收敛/
-并发配额隔离）、AUD（02/11/15，分类区分/结构化事实/danger 披露）、
-ROB（01-06，fail-closed/代理死亡/非法配置/千次循环/崩溃清扫/重复挂载拒绝）。
-AUD-01/04/05/07/08 等由 89 个单测直接覆盖。
+并发配额隔离）、AUD（02/09/10/11/15，分类区分/hash chain 防篡改/三层事实
+关联/结构化事实/danger 披露）、ROB（01-06，fail-closed/代理死亡/非法配置/
+千次循环/崩溃清扫/重复挂载拒绝）。
+AUD-01/04/05/07/08 等由 94 个单测直接覆盖。
 
 **能力清单（v9 实测，test-result 证据）**：DSH-PLUGIN 五项全部 enforced
 （fileRead / fileWrite / netEgress / resourceLimits / processControl）；
@@ -124,7 +125,7 @@ packages/policy-ci/        @hourglass/policy-ci（+ golden fixtures）
 packages/net/              @hourglass/sandbox-net（代理 + confine 装饰器）
 packages/read/             @hourglass/sandbox-read（tmpfs 遮蔽）
 packages/rsrc/             @hourglass/sandbox-rsrc（prlimit 硬上限）
-scripts/sandbox-compare/   对比框架（41 case、5 adapter、driver、net-service、
+scripts/sandbox-compare/   对比框架（43 case、5 adapter、driver、net-service、
                            run/perf/lifecycle/manifest + 版本锁 + smoke-p1/p2）
 docker/                    三阶段 Dockerfile + compose + entrypoint（gates/unit/
                            compare/perf/rob04/run-all）
@@ -147,6 +148,7 @@ reports/                   final-report.md + runs/（15 轮原始 JSON 数据）
 - Codex lane 无凭证 not-run；Windows 原生 lane 不在框架内（容器是 Linux）；
   SRT 的 allow 通道在单容器环境无法验证（其 SSRF 防护拒本机地址），deny 语义
   已全面验证。
-- 未实现：RES-07/08（取消/并发配额）、ROB-05/06（CI job 属性）、AUD-09/10
-  （hash chain/内核观察器，依赖立项）、P4 时间旅行（需产品负责人批准）、
-  P5 eBPF（可选研究）。详见 reports/final-report.md。
+- 审计防篡改（AUD-09）为检测性能力而非抵抗性：hash chain 检出任何篡改/删行/
+  重排，但不阻止有文件写权限的攻击者破坏账本本身。
+- 未实现：内核观察器（真实 OS 层事实源，eBPF/auditd 级别，依赖立项）、
+  P4 时间旅行（需产品负责人批准）、P5 eBPF（可选研究）。详见 reports/final-report.md。
