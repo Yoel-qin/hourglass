@@ -169,3 +169,25 @@
 - **交付文档**：docs/competitive-analysis.md（七维度×三竞品 + 差距 G1-G7 +
   创新点三条含优先级）；README 重写（安装/配置/使用 + 实验对比环境/用例/数据/
   结论 + 两张 SVG 图表 docs/assets/）
+
+## 会话 4（2026-10-17，桌面应用装载实战）
+
+- **目标**：DSH 桌面应用（源码 dev 路线）装载 hourglass 插件并验证。
+- **装载链路打通**：六包 fuse 进 DSH workspace + 根 devDeps（解析锚）+ tsc/tsdown
+  排除（与 Docker 同型）+ 全量构建通过；dev 桌面启动。
+- **三个装载坑（均实测复现并修复）**：
+  1. dev 桌面用隔离 home（.desktop-build/development/home），非 ~/.dsh——补丁写错地方；
+  2. 新增插件必须 `- insert:` 形态——id 覆盖形态被 loader warn 后静默跳过
+     （vendor/include 补丁语义；由应用内 agent 定位到源码行）；
+  3. 增删插件行需重启且进程树要杀净（旧 web server 占端口 → bind 失败）。
+- **网络坑**：Electron 二进制直连极慢（ELECTRON_MIRROR=npmmirror 预装解决）；
+  primary runtime 下载的 Node fetch 不认代理 → 按 lock.json sha256 预填
+  .desktop-build/downloads 缓存（文件名即 sha256，命中免网）。
+- **验证闭环（四道全过）**：账本落地（schema/策略快照/begin-end 配对/分类正确：
+  栅栏拒绝=ordinary-failure、成功=allowed）；/sandbox-audit 在 GUI 接管执行；
+  verifyAuditChain 原链 ok:true；篡改副本检出 firstBadSeq:5。
+- **新观察**：fs 工具无 result.sandbox → backend 层 unavailable（设计内）；
+  web_fetch 走宿主代理而沙箱 shell 直连被企业网络阻断——NET-13 边界的桌面端
+  活体形态；/sandbox-capabilities 在个别客户端不被斜杠分发接管（宿主侧已注册，
+  buildManifest 纯函数直调输出一致）；清单 absent=机制缺失≠环境可达性。
+- README 新增"在 DSH 桌面应用中装载插件（源码路线）"完整章节。

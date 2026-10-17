@@ -5,6 +5,8 @@ DSH（DeepSeek Harness）沙箱治理插件 + 可复现开源沙箱对比测试�
 服务端 canary 记录 / 内核资源错误信号），从不以 stderr 文本断言作主判据。
 
 - 本仓库：`D:\Aiproject\hourglass`（独立项目，DSH 仓库零修改，只读引用）
+- **源码级学习指南**（agent 沙箱原理 + 学习路线 + 逐包精读 + 竞品机制对照）：
+  [docs/learning-guide.md](docs/learning-guide.md)
 - 竞品分析（sandbox-runtime / wasmer / CubeSandbox 源码级对比 + 创新点）：
   [docs/competitive-analysis.md](docs/competitive-analysis.md)
 - 设计决策：[ADR-001](docs/ADR-001-hourglass-plugin-scope.md)、
@@ -98,6 +100,109 @@ docker run --rm -it --privileged hourglass-test bash
 
 DSH 会话内的查询命令：`/sandbox-audit`（账本查询）、
 `/sandbox-capabilities`（能力清单，含证据引用）。
+
+---
+
+## 在 DSH 桌面应用中装载插件（源码路线，实测通过）
+
+把六包装进 DSH 桌面应用（源码 dev 模式）并验证"跑的是自己的插件"的完整流程。
+前提：DSH 源码 clone（本仓锁定 `d743267`）、Node ≥22.19、pnpm 11.28.5。
+
+### 1. 融合与构建（一次性）
+
+```bash
+cd <DSH 源码>
+mkdir packages/hourglass
+cp -r <hourglass 仓库>/packages/{audit,capabilities,policy-ci,net,read,rsrc} packages/hourglass/
+```
+
+三处适配（hourglass 按 TS 源码形态由运行时加载、不参与产物构建——与 Docker
+测试镜像同型）：
+
+- `tsconfig.host.json` 的 `exclude` 加 `"packages/hourglass/**"`（否则 DSH 严格
+  tsc 会把六包卷进类型检查）；
+- `tsdown.config.ts` 的 workspace glob 加 `'!packages/hourglass/*'`（否则按 DSH
+  包规范找 `lib/types/*.js` 产物报错）；
+- 根 `package.json` devDependencies 加六条 `"@hourglass/*": "workspace:*"` 后
+  `pnpm install --no-frozen-lockfile`（workspace 成员需要被某个 importer 依赖，
+  根 node_modules 才有按名解析的链接）。
+
+然后 `pnpm run build`（Windows 上可跳过 `build:native-system`）。
+
+### 2. profile 补丁（装载点）
+
+桌面应用读取**自己的 DSH home**，两份要分清：
+
+| 应用 | profile 补丁路径 |
+|---|---|
+| dev 桌面（源码启动） | `<DSH>/apps/desktop/.desktop-build/development/home/profiles/desktop/cordis.patch.yml` |
+| 安装版 | `~/.dsh/profiles/desktop/cordis.patch.yml` |
+
+**关键坑：新增插件必须用 `- insert:` 形态**。写成 id 覆盖形态（`- id: x` 平铺）
+时，loader 对不存在的 id 只 warn 后**静默跳过**（`vendor/include` 的补丁语义）——
+这是我们实测踩过的第一个装载失败根因：
+
+```yaml
+- insert:
+    - id: hourglass-audit
+      name: "@hourglass/sandbox-audit"
+      config:
+        ledgerPath: "<该 home>/hourglass-audit.jsonl"
+        previewChars: 200
+    - id: hourglass-capabilities
+      name: "@hourglass/sandbox-capabilities"
+```
+
+建议第一轮只挂**观察者插件**（audit/capabilities，零执行语义风险）；
+net/read/rsrc 会真实改变命令执行行为（net 直接断网走 allowlist 代理），
+验证通过后再按需挂载并配置。
+
+### 3. 启动与网络坑（本机实测）
+
+```bash
+cd apps/desktop && pnpm run dev
+```
+
+- **Electron 二进制**直连下载极慢：预装
+  `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ pnpm rebuild electron`；
+- **primary runtime**（Node/Python 发行版）的下载用 Node 原生 fetch，**不认
+  HTTP(S)_PROXY 环境变量**：可用 `curl -x <代理>` 按 `scripts/primary-runtime/lock.json`
+  里的 sha256 预填缓存（缓存目录 `.desktop-build/downloads/`，**文件名即 sha256**，
+  命中即免网）；
+- 改插件行需要**重启应用**，且进程树要杀干净——残留的旧 web server 占端口会让
+  新实例 bind 失败退出。
+
+### 4. 验证"跑的是自己的插件"（四道）
+
+1. 让 agent 执行一条写文件命令；
+2. `/sandbox-audit` 应被命令处理器接管（而非落到模型手里），输出
+   `ledger <路径>: N persisted, 0 dropped` + begin/end 行；
+3. 账本核对：`"schema":"hourglass-audit/1"`、policy 快照、begin/end 按
+   `callId` 配对、fs 工具的 `backend.source` 诚实记 `unavailable`；
+4. **决定性**——hash chain 完整性 + 篡改检出（在副本上做）：
+
+   ```ts
+   import { verifyAuditChain } from '<DSH>/packages/hourglass/audit/src/ledger.ts'
+   console.log(verifyAuditChain('<账本路径>'))                       // { ok: true }
+   // 复制一份，改动中间一行的任意字符后再验：
+   // { ok: false, firstBadSeq: <n>, reason: 'record content does not match its recorded hash (tampered field)' }
+   ```
+   （`node --experimental-strip-types` 执行；实测输出 `ok:true` 与
+   `firstBadSeq:5` 精确定位。）
+
+补充：`/sandbox-capabilities` 在个别客户端上可能不被斜杠分发接管（宿主侧已注册，
+与 `/sandbox-audit` 同一注册路径）；其实现 `buildManifest` 是纯函数，直接调用得到
+的输出与命令一致。
+
+### 5. 已观察的边界（如实）
+
+- fs 工具（write/read）不在 result 上盖章 sandbox 事实 → 账本 backend 层记
+  `unavailable`（设计内边界；bash/pwsh 消费者才有结构化 `result.sandbox`）；
+- **Harness 网络工具是独立出口**：`web_fetch` 走宿主进程的代理配置、不经过沙箱，
+  而沙箱内 shell 直连被环境阻断——这正是对比矩阵 NET-13 边界的桌面端活体形态
+  （沙箱出不去 ≠ 宿主工具出不去）；
+- 能力清单 `netEgress: absent` 表述的是**后端无网络过滤机制**，不代表环境可达性
+  （企业网络/VPN 会另行阻断直连）——机制清单 ≠ 可达性观测。
 
 ---
 
@@ -248,7 +353,7 @@ packages/read/             @hourglass/sandbox-read
 packages/rsrc/             @hourglass/sandbox-rsrc
 scripts/sandbox-compare/   对比测试（43 case、versions.lock、WASI 固件源码）
 docker/                    三阶段 Dockerfile + compose + entrypoint + vendor/
-docs/                      ADR-001/002、competitive-analysis、assets/（图表）
+docs/                      ADR-001/002、learning-guide、competitive-analysis、assets/（图表）
 reports/                   final-report.md + runs/（原始 JSON 数据）
 ```
 
