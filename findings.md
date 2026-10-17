@@ -122,3 +122,24 @@
 ### 对 hourglass 的集成决策
 - 容器内 git clone DSH（固定 commit）→ 把 hourglass 包放进 clone 的 packages/hourglass/（packages/*/* 通配自动进 workspace）→ pnpm install（--no-frozen-lockfile）→ build → vitest + loader smoke
 - 用户本地 D:\Aiproject\deepseek-harness 保持只读不动
+
+## 竞品扩展轮（2026-10-17）
+
+三份源码级调研（全文见 docs/competitive-analysis.md）核心事实：
+
+- **SRT**（0.0.80 源码 / 0.0.79 lane）：无 daemon 单进程包装器；三平台后端
+  （seatbelt/bwrap+WFP）+ 进程内智能代理（TLS MITM/凭据 mask/SigV4 重签/SSRF
+  resolved-address-guard 无 TOCTOU）；强制 deny 自保护清单（.bashrc/.git/hooks/
+  .mcp.json）+ ripgrep 嵌套扫描；fail-closed 纪律全面；2330 测试。缺口：Linux
+  wrap 成本随树增长（秒级）、无资源配额面、无审计账本、Windows alpha。
+- **wasmer**（7.5 源码 / 7.3.0 lane——v7.4+ 需 GLIBC 2.38 超 bookworm 2.36）：
+  能力沙箱（默认 memfs 虚拟根，--volume HOST:GUEST 显式授予）；WASIX socket 由
+  CLI --net ruleset 门控但 preview1 fixture 无 socket 导入；燃料计量/内存上限为
+  嵌入层 API（CLI 无资源治理面）；journal 快照加速冷启动。
+- **Cube**（v0.7.3+14）：KVM microVM 池 + 模板内存快照 + XFS reflink FICLONE
+  O(1) 克隆 → 创建 47.8ms（官方裸金属基准）；eBPF 交换机 + L7 MITM 默认拒绝；
+  E2B 兼容 API。硬门槛：/dev/kvm + XFS(reflink) + systemd（本机 Docker 容器探测
+  /dev/kvm 缺失且无 vmx → 证据支撑 not-run）。
+- hourglass 差距归纳 G1-G7（资源治理 rlimit 局限 / 无模型可读归因 / 无自保护
+  清单 / 无快照回滚 / 无 SSRF 守卫 / 平台单一 / 无运行期观测）→ 创新点三条：
+  cgroup v2 配额墙（P1）、拒绝归因闭环（P1）、会话快照回滚（P2）。

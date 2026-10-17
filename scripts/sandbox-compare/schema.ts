@@ -40,7 +40,7 @@ export interface CompareCase {
   readonly appliesTo: readonly SubjectId[]
 }
 
-export type SubjectId = 'DSH-BASE' | 'DSH-PLUGIN' | 'SRT' | 'NSJAIL' | 'CODEX'
+export type SubjectId = 'DSH-BASE' | 'DSH-PLUGIN' | 'SRT' | 'NSJAIL' | 'WASMER' | 'CUBE' | 'CODEX'
 
 export type CaseStatus = 'pass' | 'fail' | 'unsupported' | 'not-run' | 'unknown' | 'blocked'
 

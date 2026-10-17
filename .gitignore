@@ -5,3 +5,4 @@ reports/runs/
 *.log
 .DS_Store
 docker/vendor/
+.mimosa/

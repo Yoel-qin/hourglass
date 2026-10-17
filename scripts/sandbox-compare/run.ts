@@ -22,9 +22,35 @@ import { dshBase, dshPlugin } from './adapters/dsh.ts'
 import { srt } from './adapters/srt.ts'
 import { nsjail } from './adapters/nsjail.ts'
 import { codex } from './adapters/codex.ts'
+import { wasmer } from './adapters/wasmer.ts'
+import { cube } from './adapters/cube.ts'
 import type { RawExecution, SubjectAdapter } from './adapters/types.ts'
 
-const ADAPTERS: readonly SubjectAdapter[] = [dshBase, dshPlugin, srt, nsjail, codex]
+const ADAPTERS: readonly SubjectAdapter[] = [dshBase, dshPlugin, srt, nsjail, wasmer, cube, codex]
+
+/** Why a case outside a subject's appliesTo is incomparable, per subject. */
+function unsupportedReason(subject: SubjectId, caseId: string): string {
+  if (subject === 'CODEX') return 'codex carries no credentials (see versions.lock)'
+  if (subject === 'WASMER') {
+    if (caseId.startsWith('NET') || caseId === 'ROB-03') {
+      return 'WASI preview1 exposes no socket capability — the network attack surface is structurally absent (wasmer gates its WASIX socket extension behind --net rulesets; see versions.lock constraints)'
+    }
+    if (caseId.startsWith('RES')) {
+      return 'wasmer run v7.3.0 exposes no resource caps at the CLI — fuel metering and memory tunables are embedder-only (versions.lock constraints)'
+    }
+    if (caseId === 'FS-09') {
+      return 'no subprocess/exec capability in WASI preview1 — the interpreter attack surface does not exist'
+    }
+    if (caseId === 'FS-11' || caseId === 'FS-12') {
+      return 'no deny-read mechanism below a mapped volume (capability model: exclusion = not mapping the parent) — same honest unsupported as nsjail'
+    }
+    if (caseId.startsWith('AUD')) {
+      return 'in-process runtime with no audit surface — nothing comparable to a governance ledger'
+    }
+    return 'case not expressible in the WASM capability model by design'
+  }
+  return 'case not applicable to this subject by design (observability not comparable)'
+}
 
 interface DirectorySnapshot {
   readonly files: Map<string, string>
@@ -326,7 +352,7 @@ async function main(): Promise<void> {
   const smokeFile = smokeFlag.split('=')[1] as string
   const smokeDir = new URL('.', import.meta.url).pathname
   const smoke = smokeFile === 'all'
-    ? { cases: CASES.map(definition => definition.id), subjects: ['DSH-BASE', 'DSH-PLUGIN', 'SRT', 'NSJAIL'] as SubjectId[] }
+    ? { cases: CASES.map(definition => definition.id), subjects: ['DSH-BASE', 'DSH-PLUGIN', 'SRT', 'NSJAIL', 'WASMER'] as SubjectId[] }
     : JSON.parse(readFileSync(join(smokeDir, smokeFile), 'utf8')) as { cases: string[]; subjects: SubjectId[] }
   const lockRaw = readFileSync(LOCK_PATH)
   const lockViolations = validateLock(JSON.parse(lockRaw.toString('utf8')))
@@ -397,7 +423,7 @@ async function main(): Promise<void> {
           runId, subject: adapter.id, caseId, profile: caseDefinition.profile,
           status: 'unsupported', expected: caseDefinition.expectation,
           evidence: { exitCode: null, stdoutTail: '', stderrTail: '', durationMs: 0, observations: [] },
-          reason: adapter.id === 'CODEX' ? 'codex carries no credentials (see versions.lock)' : 'case not applicable to this subject by design (observability not comparable)',
+          reason: unsupportedReason(adapter.id, caseId),
         })
         continue
       }

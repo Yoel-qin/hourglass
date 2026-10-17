@@ -144,3 +144,28 @@
 - AUD-09/10 case 判定只认响应字段（与 ROB-06 duplicateRejected 同模式）；判定 switch 补 tamper-detected/fact-chain 枚举
 - ADR-002：RES_QUOTAS 阈值三原则（必然越限/不误伤/看门狗余量），满足计划"阈值须 ADR 确定"的诚实性规则
 - v18 定稿（43×4=172）：DSH-PLUGIN 42/1/0；其余 lane 零回归；单测 94/94
+
+## 会话 3（2026-10-17，竞品扩展轮）
+
+- **三份源码级竞品调研**（Explore agent × 3）：SRT 0.0.80（三平台后端/智能代理/
+  fail-closed 纪律/2330 测试）、wasmer 7.5（能力沙箱/--volume/ruleset/计量仅嵌入层）、
+  Cube 0.7.3+14（KVM microVM 池/模板内存快照/reflink CoW/47.8ms 官方基准）
+- **对比框架扩展**：WASMER subject（zig 0.13 编译 WASI 探针固件 fs_probe.zig，
+  标记与既有判定正则同语言；--volume HOST:GUEST）+ CUBE subject（KVM/XFS/systemd
+  探测 → 证据化 not-run）；versions.lock 增两 subject + fixtureToolchains +
+  unsupportedDeclarations×5；entrypoint 增 compare-all / compare-cube
+- **踩坑**：wasmer v7.5.0/v7.4.2 二进制需 GLIBC 2.38+（bookworm 2.36）→ 探测
+  GLIBC 符号后锁 v7.3.0（2.34/3.4.30 兼容）；tarball 无顶层目录；python
+  heredoc 把 \n 写成真实换行破坏 zig 字符串（Edit 修复）
+- **v19 矩阵（43×5=215，compare-all-20261017T064348Z）**：DSH-PLUGIN 42/1/0；
+  DSH-BASE 14/12/15+2u；SRT 19/2/22；NSJAIL 20/3/19+1u；WASMER 10/0/33
+  （全部适用 case 真过，含 ROB-01 wasmer 断卷拒绝 rc=2 的真 fail-closed）
+- **CUBE lane**：43 not-run（compare-cube-20261017T064756Z，/dev/kvm 缺失 +
+  无 vmx 证据）；**PERF（perf-20261017T064810Z）**：bare 5ms / NSJAIL 11 /
+  WASMER 40 / DSH-BASE 155 / DSH-PLUGIN 277 / SRT 322（median）
+- **3 个 unknown**（BASE RES-02/05、NSJAIL RES-02）：limit-enforced 判定在收尾
+  时序上的输出敏感，非本轮改动引入（判定逻辑零 diff）——如实披露
+- 单测 94/94 绿；gates sha256=3baf3b24…
+- **交付文档**：docs/competitive-analysis.md（七维度×三竞品 + 差距 G1-G7 +
+  创新点三条含优先级）；README 重写（安装/配置/使用 + 实验对比环境/用例/数据/
+  结论 + 两张 SVG 图表 docs/assets/）

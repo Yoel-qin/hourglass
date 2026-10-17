@@ -43,6 +43,22 @@ do_compare() {
   node --experimental-strip-types "$HG_SCRIPTS/sandbox-compare/run.ts" --out="$out" 2>&1 | tee "$out.log"
 }
 
+do_compare_all() {
+  log "running the FULL comparison matrix (43 cases x 5 subjects incl. WASMER)"
+  local out
+  out="$REPORTS/runs/compare-all-$(date -u +%Y%m%dT%H%M%SZ)"
+  cd "$DSH"
+  node --experimental-strip-types "$HG_SCRIPTS/sandbox-compare/run.ts" --smoke=all --out="$out" 2>&1 | tee "$out.log"
+}
+
+do_compare_cube() {
+  log "running the CUBE lane (expected outcome: evidence-backed not-run records)"
+  local out
+  out="$REPORTS/runs/compare-cube-$(date -u +%Y%m%dT%H%M%SZ)"
+  cd "$DSH"
+  node --experimental-strip-types "$HG_SCRIPTS/sandbox-compare/run.ts" --smoke=all --subjects=CUBE --out="$out" 2>&1 | tee "$out.log"
+}
+
 do_perf() {
   log "running PERF baseline sampler"
   local out
@@ -59,12 +75,14 @@ do_rob04() {
 }
 
 case "${1:-bash}" in
-  gates)   do_gates ;;
-  unit)    do_unit ;;
-  compare) do_compare ;;
-  perf)    do_perf ;;
-  rob04)   do_rob04 ;;
-  run-all) do_gates; do_unit; do_compare; do_perf; do_rob04 ;;
-  bash)    exec bash ;;
-  *)       exec "$@" ;;
+  gates)        do_gates ;;
+  unit)         do_unit ;;
+  compare)      do_compare ;;
+  compare-all)  do_compare_all ;;
+  compare-cube) do_compare_cube ;;
+  perf)         do_perf ;;
+  rob04)        do_rob04 ;;
+  run-all)      do_gates; do_unit; do_compare; do_perf; do_rob04 ;;
+  bash)         exec bash ;;
+  *)            exec "$@" ;;
 esac

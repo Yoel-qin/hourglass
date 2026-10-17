@@ -16,6 +16,7 @@ import { validate as validateLock, LOCK_PATH } from './validate-versions-lock.ts
 import { dshBase, dshPlugin } from './adapters/dsh.ts'
 import { srt } from './adapters/srt.ts'
 import { nsjail } from './adapters/nsjail.ts'
+import { wasmer } from './adapters/wasmer.ts'
 import type { RawExecution, SubjectAdapter } from './adapters/types.ts'
 import type { CaseContext } from './cases.ts'
 
@@ -102,6 +103,7 @@ async function main(): Promise<void> {
     'DSH-PLUGIN': dshPlugin,
     SRT: srt,
     NSJAIL: nsjail,
+    WASMER: wasmer,
   }
   const report: Record<string, unknown> = {
     schema: 'hourglass-perf/1',

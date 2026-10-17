@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="264" viewBox="0 0 760 264">
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="110" y="16" font-family="Segoe UI, PingFang SC, sans-serif" font-size="12" fill="#6b7280">命令执行端到端延迟（30 次采样；实心 = median，浅色 = p95；越短越好）</text>
+<text x="100" y="42" text-anchor="end" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#374151">bare</text>
+<rect x="110" y="30" width="10" height="16" rx="3" fill="#9ca3af" opacity="0.35"/>
+<rect x="110" y="30" width="7" height="16" rx="3" fill="#9ca3af"/>
+<text x="126" y="42" font-family="ui-monospace,Consolas,monospace" font-size="12" fill="#111827">median 5ms · p95 7ms</text>
+<text x="100" y="76" text-anchor="end" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#374151">NSJAIL</text>
+<rect x="110" y="64" width="19" height="16" rx="3" fill="#60a5fa" opacity="0.35"/>
+<rect x="110" y="64" width="16" height="16" rx="3" fill="#60a5fa"/>
+<text x="135" y="76" font-family="ui-monospace,Consolas,monospace" font-size="12" fill="#111827">median 11ms · p95 13ms</text>
+<text x="100" y="110" text-anchor="end" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#374151">WASMER</text>
+<rect x="110" y="98" width="64" height="16" rx="3" fill="#60a5fa" opacity="0.35"/>
+<rect x="110" y="98" width="57" height="16" rx="3" fill="#60a5fa"/>
+<text x="180" y="110" font-family="ui-monospace,Consolas,monospace" font-size="12" fill="#111827">median 40ms · p95 45ms</text>
+<text x="100" y="144" text-anchor="end" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#374151">DSH-BASE</text>
+<rect x="110" y="132" width="263" height="16" rx="3" fill="#60a5fa" opacity="0.35"/>
+<rect x="110" y="132" width="221" height="16" rx="3" fill="#60a5fa"/>
+<text x="379" y="144" font-family="ui-monospace,Consolas,monospace" font-size="12" fill="#111827">median 155ms · p95 184ms</text>
+<text x="100" y="178" text-anchor="end" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#374151">DSH-PLUGIN</text>
+<rect x="110" y="166" width="424" height="16" rx="3" fill="#2563eb" opacity="0.35"/>
+<rect x="110" y="166" width="396" height="16" rx="3" fill="#2563eb"/>
+<text x="540" y="178" font-family="ui-monospace,Consolas,monospace" font-size="12" fill="#111827">median 277ms · p95 297ms</text>
+<text x="100" y="212" text-anchor="end" font-family="ui-monospace,Consolas,monospace" font-size="13" fill="#374151">SRT</text>
+<rect x="110" y="200" width="490" height="16" rx="3" fill="#60a5fa" opacity="0.35"/>
+<rect x="110" y="200" width="460" height="16" rx="3" fill="#60a5fa"/>
+<text x="606" y="212" font-family="ui-monospace,Consolas,monospace" font-size="12" fill="#111827">median 322ms · p95 343ms</text>
+</svg>

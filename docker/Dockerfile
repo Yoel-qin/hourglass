@@ -73,6 +73,32 @@ RUN tar -xzf /tmp/vendor/codex.tar.gz -C /tmp \
 # Anthropic Sandbox Runtime at a pinned npm version.
 RUN npm install -g --omit=dev @anthropic-ai/sandbox-runtime@${SRT_VERSION}
 
+# Wasmer at a pinned release (vendored; the tarball carries bin/ + lib/ and
+# installs cleanly into /usr/local). v7.3.0 is the newest release whose
+# binaries still satisfy bookworm's glibc 2.36 / GLIBCXX 3.4.30 (v7.4+ are
+# built on ubuntu-24.04 and require GLIBC 2.38+). The WASMER compare lane
+# runs WASI preview1 probe fixtures through it.
+COPY docker/vendor/wasmer-v7.3.0-linux-amd64.tar.gz /tmp/vendor/wasmer.tar.gz
+RUN mkdir -p /tmp/wasmer-dist \
+    && tar -xzf /tmp/vendor/wasmer.tar.gz -C /tmp/wasmer-dist \
+    && cp -a /tmp/wasmer-dist/bin/. /usr/local/bin/ \
+    && cp -a /tmp/wasmer-dist/lib/. /usr/local/lib/ \
+    && ldconfig \
+    && rm -rf /tmp/wasmer-dist /tmp/vendor \
+    && wasmer --version
+
+# Zig toolchain (vendored) compiles the WASI probe fixture for the WASMER
+# lane, then is removed — the compiled .wasm ships in the image.
+COPY docker/vendor/zig-0.13.0.tar.xz /tmp/vendor/zig.tar.xz
+COPY scripts/sandbox-compare/fixtures-wasm/ /opt/hourglass-src/fixtures-wasm/
+RUN tar -xJf /tmp/vendor/zig.tar.xz -C /opt \
+    && cd /opt/hourglass-src/fixtures-wasm \
+    && /opt/zig-linux-x86_64-0.13.0/zig build-exe fs_probe.zig -target wasm32-wasi -O ReleaseSmall \
+    && mkdir -p /opt/hourglass-wasm \
+    && install -m 0644 fs_probe.wasm /opt/hourglass-wasm/fs_probe.wasm \
+    && rm -rf /opt/zig-linux-x86_64-0.13.0 /tmp/vendor \
+    && ls -la /opt/hourglass-wasm
+
 FROM tools AS dsh
 
 ENV DSH_TELEMETRY_DISABLED=1

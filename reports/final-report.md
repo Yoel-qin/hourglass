@@ -137,3 +137,25 @@ docker run --rm --privileged -v "$(pwd)/reports:/opt/reports" \
 4. **Codex lane**：需 OpenAI 凭证才能从 not-run 升级（versions.lock 待审更新）。
 5. **能力清单联动**：把 v8 矩阵结果作为 test-result 证据喂给 buildManifest 的 tested 参数，
    netEgress/fileRead/resourceLimits 即可从 absent→enforced（机制与证据都已具备）。
+
+---
+
+## 附录：竞品扩展轮（2026-10-17，v19）
+
+本报告主体描述 v18（43×4）。竞品扩展轮新增两个 subject 并重跑全量：
+
+- **WASMER 7.3.0**（官方二进制，vendored）：WASM 能力沙箱 lane——镜像内 zig
+  0.13.0 编译的 WASI 探针固件承载与 shell 用例同语义的攻击操作。结果
+  **10 pass / 0 fail / 33 机制不可比**（preview1 无 socket/子进程、CLI 无资源
+  上限、映射卷下无 deny-read——逐条声明于 versions.lock 与报告）。
+- **CUBE 0.7.3+14**：KVM microVM 沙箱池——本机容器实测 /dev/kvm 缺失且无
+  vmx 标志（其安装器硬检查 XFS reflink + systemd），43 条 not-run 逐条附探测
+  证据；性能引用官方裸金属基准（创建 47.8ms，明确标注未本地复现）。
+- v19 矩阵（43×5=215，compare-all-20261017T064348Z，lock sha256 3baf3b24…）：
+  DSH-PLUGIN 42/1/0（零回归）；DSH-BASE 14/12/15+2u；SRT 19/2/22；
+  NSJAIL 20/3/19+1u。3 个 unknown 为 limit-enforced 判定在进程收尾时序上的
+  输出敏感（非本轮判定逻辑变更——判定代码零 diff）。
+- PERF v2（perf-20261017T064810Z）：bare 5ms / NSJAIL 11 / **WASMER 40** /
+  DSH-BASE 155 / DSH-PLUGIN 277 / SRT 322（median，30 次）。
+- 完整竞品分析（七维度×三竞品 + 差距 G1-G7 + 三个创新方向）：
+  docs/competitive-analysis.md；对外呈现（安装/配置/使用 + 实验对比）见 README。

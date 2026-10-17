@@ -7,6 +7,9 @@
     "containerBase": "node:24-slim (Debian 12 bookworm)",
     "kernelNote": "bwrap/nsjail/landlock require --privileged on this host; unprivileged userns clone is blocked by the container runtime",
     "node": "24 (container image)",
+    "fixtureToolchains": {
+      "zig": "0.13.0 (vendored docker/vendor/zig-0.13.0.tar.xz, sha256 d45312e61ebcc48032b77bc4cf7fd6915c11fa16e4aad116b66c9468211230ea) — compiles the WASI probe fixture for the WASMER lane at image build time"
+    },
     "runnerNotes": "All tests run inside the hourglass-test Docker image; no host directories except reports/ are mounted"
   },
   "subjects": {
@@ -67,12 +70,49 @@
       "install": "git clone --depth 1 --branch 3.6 && make && install to /usr/local/bin",
       "platformSupport": { "linux": "namespaces + seccomp + rlimits", "darwin": false, "win32": false },
       "role": "Linux strong-isolation reference"
+    },
+    "WASMER": {
+      "kind": "binary",
+      "package": "wasmer",
+      "version": "7.3.0",
+      "tag": "v7.3.0",
+      "commit": "35c10644f7b0aad6fd9458624ceb8429fe7413c4",
+      "repository": "https://github.com/wasmerio/wasmer",
+      "install": "release asset wasmer-linux-amd64.tar.gz (vendored under docker/vendor/, sha256 9b9a42c48d8c807ae1602cdd75fcb91d294824ae131ca9281eeca3710f75e4c3) extracted into /usr/local; v7.3.0 is the newest release compatible with the bookworm base image's glibc 2.36 (v7.4+ require GLIBC 2.38+)",
+      "platformSupport": {
+        "linux": "in-process WASM capability sandbox; WASI preview1 volumes via --volume HOST:GUEST over a virtual memfs root",
+        "darwin": true,
+        "win32": true
+      },
+      "constraints": {
+        "note": "honest incomparability declarations, never silent skips: (1) WASI preview1 has no socket capability — NET/ROB-03 are structurally out of scope (wasmer gates its WASIX socket extension behind --net rulesets, but the pinned preview1 probe fixture cannot express socket attacks); (2) wasmer run v7.3.0 exposes no resource caps at the CLI — fuel metering (lib/middlewares/src/metering.rs) and memory tunables are embedder-only; (3) no deny-read below a mapped volume and no subprocess in preview1 — FS-09/11/12 unsupported like nsjail"
+      },
+      "role": "competitor: in-process WASM capability sandbox (structural isolation, embedder-facing governance)"
+    },
+    "CUBE": {
+      "kind": "source",
+      "package": "CubeSandbox",
+      "version": "0.7.3+14",
+      "tag": "v0.7.3",
+      "commit": "e0c1820ac2132df08bd4912e614486717275b956",
+      "repository": "https://github.com/TencentCloud/CubeSandbox",
+      "install": "not installed locally: the one-click installer hard-exits without /dev/kvm and an XFS(reflink) /data/cubelet volume plus systemd (deploy/one-click/install.sh:913,1058-1119); the Docker Desktop/WSL2 test container probe shows /dev/kvm absent and no vmx/svm CPU flag",
+      "platformSupport": {
+        "linux": "KVM MicroVM sandbox pool (Cloud Hypervisor fork) + containerd shim + eBPF switch + L7 egress MITM; x86_64 and arm64",
+        "darwin": false,
+        "win32": false
+      },
+      "constraints": {
+        "authRequired": false,
+        "note": "lane runs as honest not-run for every case with the probe reason; Cube's source-verified mechanisms and its vendor benchmark (docs/blog/posts/2026-06-01-cubesandbox-perf-benchmark.md) are compared in the analysis docs and README, clearly labeled as not locally reproduced"
+      },
+      "role": "competitor: multi-tenant KVM microVM sandbox pool with E2B-compatible API (hardware isolation reference)"
     }
   },
   "ciActions": [],
   "review": {
-    "lastReviewedAt": "2026-10-13",
-    "lastReviewedBy": "hourglass P0 session",
+    "lastReviewedAt": "2026-10-17",
+    "lastReviewedBy": "hourglass competitive-extension session (WASMER 7.3.0 + CUBE 0.7.3+14 added with constraint declarations)",
     "policy": "updating any pinned version in this file requires review in the same PR; reports quote the file hash so silent drift is detectable"
   },
   "unsupportedDeclarations": [
@@ -85,6 +125,26 @@
       "subject": "SRT",
       "scope": "native windows",
       "reason": "linux-only Docker lane; upstream Windows support unverified here"
+    },
+    {
+      "subject": "WASMER",
+      "scope": "NET-*, ROB-03",
+      "reason": "WASI preview1 exposes no socket capability — the network attack surface is structurally absent"
+    },
+    {
+      "subject": "WASMER",
+      "scope": "RES-*",
+      "reason": "wasmer run v7.3.0 exposes no resource caps at the CLI (fuel metering and memory tunables are embedder-only)"
+    },
+    {
+      "subject": "WASMER",
+      "scope": "FS-09, FS-11, FS-12",
+      "reason": "no subprocess and no deny-read below a mapped volume in the preview1 capability model"
+    },
+    {
+      "subject": "CUBE",
+      "scope": "all cases",
+      "reason": "KVM microVM runtime cannot start in the Docker Desktop/WSL2 test container (/dev/kvm absent, no vmx/svm flag, no XFS reflink volume, no systemd); honest not-run with probe evidence, never PASS"
     }
   ]
 }

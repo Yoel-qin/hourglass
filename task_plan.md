@@ -135,6 +135,22 @@
 - [x] 最终报告 reports/final-report.md（按计划第 11 节模板）
 - [x] 推送 GitHub：https://github.com/Yoel-qin/hourglass
 
+### 阶段 17：竞品扩展轮（sandbox-runtime/wasmer/CubeSandbox 对比 + README） — status: complete（2026-10-17）
+- [x] 三份源码级竞品调研（Explore agent × 3：SRT 0.0.80、wasmer 7.5.0、Cube 0.7.3+14，file:line 证据）
+- [x] 对比框架扩展：WASMER subject（--volume 能力沙箱 lane，zig 编译 WASI 探针固件
+  fixtures-wasm/fs_probe.zig，标记与判定正则同语言）+ CUBE subject（KVM 探测 →
+  证据支撑 not-run，同 Codex 纪律）
+- [x] versions.lock：WASMER 7.3.0（v7.4+ 需 GLIBC 2.38 超 bookworm，符号探测后锁定）/
+  CUBE 0.7.3+14 条目 + fixtureToolchains（zig 0.13.0 sha256）+
+  unsupportedDeclarations 扩充；entrypoint 新增 compare-all / compare-cube
+- [x] docs/competitive-analysis.md：三竞品逐维度优缺点 + hourglass 差距（G1-G7）+
+  创新点（cgroup v2 配额墙 / 拒绝归因闭环 / 会话快照回滚，含优先级）
+- [x] 容器内实测：compare-all v19（43×5=215：DSH-PLUGIN 42/1/0；WASMER 10/0/33）+
+  CUBE lane（43 条证据化 not-run）+ PERF（WASMER 40ms median）+ 单测 94/94
+- [x] README 重写：安装/配置/使用 + 实验对比（环境/用例/数据/结论，表格 +
+  docs/assets/ 两张 SVG 图表）；不含测试框架实现说明
+- [x] KVM 不可行证据：Docker 容器探测 /dev/kvm 缺失 + 无 vmx 标志
+
 ## 决策记录
 
 | 决策 | 理由 |
@@ -153,3 +169,4 @@
 | apt/codeload/git 在容器内慢或阻断 | 多次 | apt→USTC 镜像；GitHub 一律走 codeload tarball（git clone github.com 稳定失败）；npm→npmmirror（12 倍速） |
 | nsjail kafel submodule clone 失败 | 1 | 预置 kafel/（codeload tarball），kafel_init 见 Makefile 存在即跳过 git |
 | 后台命令 `docker build ... \| tail` 掩盖退出码 | 1 | 改为完整日志写文件 + `echo BUILD_EXIT=$?` |
+| wasmer v7.5.0 二进制要求 GLIBC 2.38+（bookworm 仅 2.36） | 1 | 探测 v7.4.2/v7.3.0/v5.0.6 的 GLIBC 符号需求后锁定 v7.3.0（GLIBC 2.34/GLIBCXX 3.4.30，兼容） |

@@ -54,7 +54,7 @@ function validate(lock: unknown): Violation[] {
     violations.push({ path: 'subjects', problem: 'not an object' })
     return violations
   }
-  const REQUIRED_SUBJECTS = ['DSH-BASE', 'DSH-PLUGIN', 'SRT', 'CODEX', 'NSJAIL'] as const
+  const REQUIRED_SUBJECTS = ['DSH-BASE', 'DSH-PLUGIN', 'SRT', 'CODEX', 'NSJAIL', 'WASMER', 'CUBE'] as const
   for (const id of REQUIRED_SUBJECTS) {
     if (!(id in subjects)) violations.push({ path: `subjects.${id}`, problem: 'required subject missing' })
   }

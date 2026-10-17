@@ -8,6 +8,9 @@
 import type { CompareCase, SubjectId } from './schema.ts'
 
 const ALL_SANDBOXES: readonly SubjectId[] = ['DSH-BASE', 'DSH-PLUGIN', 'SRT', 'NSJAIL']
+// WASMER joins only the cases its WASI probe fixture can carry with real
+// evidence; everything else is an explicit unsupported (versions.lock).
+const WITH_WASMER: readonly SubjectId[] = [...ALL_SANDBOXES, 'WASMER']
 const DSH_ONLY: readonly SubjectId[] = ['DSH-BASE', 'DSH-PLUGIN']
 const DSH_PLUGIN_ONLY: readonly SubjectId[] = ['DSH-PLUGIN']
 
@@ -70,7 +73,7 @@ export const CASES: readonly CompareCase[] = [
     action: { kind: 'shell', command: 'printf {CANARY} > {WORKSPACE}/inside.txt && cat {WORKSPACE}/inside.txt' },
     blockedEvidence: 'file-must-not-exist',
     successEvidence: 'file-exists',
-    appliesTo: ALL_SANDBOXES,
+    appliesTo: WITH_WASMER,
   },
   {
     id: 'FS-02',
@@ -81,7 +84,7 @@ export const CASES: readonly CompareCase[] = [
     action: { kind: 'shell', command: FS_OUTSIDE_WRITE },
     blockedEvidence: 'file-must-not-exist',
     successEvidence: 'file-exists',
-    appliesTo: ALL_SANDBOXES,
+    appliesTo: WITH_WASMER,
   },
   {
     id: 'FS-03',
@@ -92,7 +95,7 @@ export const CASES: readonly CompareCase[] = [
     action: { kind: 'shell', command: 'printf hacked > {OUTSIDE}/existing.txt' },
     blockedEvidence: 'file-content-unchanged',
     successEvidence: 'file-exists',
-    appliesTo: ALL_SANDBOXES,
+    appliesTo: WITH_WASMER,
   },
   {
     id: 'FS-04',
@@ -103,7 +106,7 @@ export const CASES: readonly CompareCase[] = [
     action: { kind: 'shell', command: 'rm -f {OUTSIDE}/victim.txt' },
     blockedEvidence: 'file-content-unchanged',
     successEvidence: 'file-exists',
-    appliesTo: ALL_SANDBOXES,
+    appliesTo: WITH_WASMER,
   },
   {
     id: 'FS-05',
@@ -114,7 +117,7 @@ export const CASES: readonly CompareCase[] = [
     action: { kind: 'shell', command: 'printf hacked > {WORKSPACE}/../traversal-{CANARY}.txt' },
     blockedEvidence: 'file-must-not-exist',
     successEvidence: 'file-exists',
-    appliesTo: ALL_SANDBOXES,
+    appliesTo: WITH_WASMER,
   },
   {
     id: 'FS-06',
@@ -125,7 +128,7 @@ export const CASES: readonly CompareCase[] = [
     action: { kind: 'shell', command: 'ln -s {OUTSIDE}/existing.txt {WORKSPACE}/link.lnk && printf hacked > {WORKSPACE}/link.lnk' },
     blockedEvidence: 'file-content-unchanged',
     successEvidence: 'file-exists',
-    appliesTo: ALL_SANDBOXES,
+    appliesTo: WITH_WASMER,
   },
   {
     id: 'FS-10',
@@ -136,7 +139,7 @@ export const CASES: readonly CompareCase[] = [
     action: { kind: 'shell', command: 'cat {WORKSPACE}/readable.txt' },
     blockedEvidence: 'file-must-not-exist',
     successEvidence: 'file-exists',
-    appliesTo: ALL_SANDBOXES,
+    appliesTo: WITH_WASMER,
   },
   {
     id: 'FS-11',
@@ -246,7 +249,7 @@ export const CASES: readonly CompareCase[] = [
     action: { kind: 'shell', command: 'printf should-not-run > {WORKSPACE}/rob01.txt' },
     blockedEvidence: 'file-must-not-exist',
     successEvidence: 'error-message',
-    appliesTo: DSH_ONLY,
+    appliesTo: [...DSH_ONLY, 'WASMER'],
   },
   {
     id: 'AUD-02',
@@ -323,7 +326,7 @@ export const CASES: readonly CompareCase[] = [
     action: { kind: 'shell', command: 'ln {OUTSIDE}/existing.txt {OUTSIDE}/hard.txt 2>&1; printf hacked > {OUTSIDE}/hard.txt 2>&1; cat /ROOT/nonexistent 2>&1 | head -1; echo DONE' },
     blockedEvidence: 'file-content-unchanged',
     successEvidence: 'file-exists',
-    appliesTo: ALL_SANDBOXES,
+    appliesTo: WITH_WASMER,
   },
   {
     id: 'FS-08',
@@ -334,7 +337,7 @@ export const CASES: readonly CompareCase[] = [
     action: { kind: 'shell', command: 'mv {OUTSIDE} {OUTSIDE}-moved 2>&1 | head -1; rm -rf {OUTSIDE} 2>&1 | head -1; echo DONE' },
     blockedEvidence: 'file-content-unchanged',
     successEvidence: 'file-exists',
-    appliesTo: ALL_SANDBOXES,
+    appliesTo: WITH_WASMER,
   },
   {
     id: 'FS-09',
