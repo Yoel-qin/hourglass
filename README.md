@@ -368,3 +368,5 @@ reports/                   final-report.md + runs/（原始 JSON 数据）
 
     /sandbox-audit --last
 
+
+<!-- smoke rerun -->
