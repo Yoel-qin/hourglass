@@ -1,0 +1,59 @@
+name: CI
+
+# 真实测试流水线：在 GitHub runner 上重建本地同款 Docker privileged 测试
+# 容器（vendor tarball 在 CI 侧按 README 记载的来源现场下载；镜像构建里
+# 指向本机代理的 ENV 行在 runner 上删除），然后跑与本地完全相同的门禁：
+# versions-lock gate、融合 workspace 全量单测（含 evolution 集成测试）、
+# evolution 守门流水线（改进候选必须 pass、无改进候选必须 reject）。
+# 合并进 feat/evolution-v2 前要求本流水线与 PR Agent 全绿。
+
+on:
+  pull_request:
+  push:
+    branches: [feat/evolution-v2]
+
+jobs:
+  container-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch vendored tarballs (same sources as the README table)
+        run: |
+          set -euo pipefail
+          mkdir -p docker/vendor
+          curl -fsSL -o docker/vendor/nsjail-3.6.tar.gz https://github.com/google/nsjail/archive/refs/tags/3.6.tar.gz
+          curl -fsSL -o docker/vendor/kafel-master.tar.gz https://github.com/google/kafel/archive/refs/heads/master.tar.gz
+          curl -fsSL -o docker/vendor/dsh-d743267.tar.gz https://codeload.github.com/deepseek-ai/deepseek-harness/tar.gz/d743267388641bc76f17c45ce8b4c231aed1d32c
+          curl -fsSL -o docker/vendor/codex-0.162.1.tar.gz https://github.com/openai/codex/releases/download/rust-v0.162.1/codex-x86_64-unknown-linux-musl.tar.gz
+          curl -fsSL -o docker/vendor/wasmer-v7.3.0-linux-amd64.tar.gz https://github.com/wasmerio/wasmer/releases/download/v7.3.0/wasmer-linux-amd64.tar.gz
+          curl -fsSL -o docker/vendor/zig-0.13.0.tar.xz https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz
+          ls -la docker/vendor
+
+      - name: Strip the local-proxy ENV lines (no host proxy on GH runners)
+        run: sed -i '/host\.docker\.internal:10808/d' docker/Dockerfile
+
+      - name: Build the hourglass-test image
+        run: docker build -t hourglass-test -f docker/Dockerfile .
+
+      - name: Gates (versions-lock)
+        run: docker run --rm --privileged hourglass-test hourglass-entrypoint gates
+
+      - name: Evolution lock gate
+        run: docker run --rm --privileged hourglass-test node --experimental-strip-types /opt/dsh/packages/hourglass/evolution-runner/validate-evolution-lock.ts
+
+      - name: Unit tests (fused DSH workspace, incl. evolution integration specs)
+        run: docker run --rm --privileged hourglass-test hourglass-entrypoint unit
+
+      - name: Evolution gate pipeline (improved candidate must pass)
+        run: >-
+          docker run --rm --privileged hourglass-test
+          node --experimental-strip-types /opt/dsh/packages/hourglass/evolution-runner/run.ts
+          --out=/tmp/evo-improved
+
+      - name: Evolution gate pipeline (no-change candidate must be rejected)
+        run: >-
+          docker run --rm --privileged hourglass-test
+          node --experimental-strip-types /opt/dsh/packages/hourglass/evolution-runner/run.ts
+          --out=/tmp/evo-nochange --candidate=nochange --expect=reject

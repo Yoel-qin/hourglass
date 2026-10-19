@@ -6,6 +6,7 @@
   "type": "module",
   "dependencies": {
     "@hourglass/evolution-contract": "workspace:*",
-    "@hourglass/evolution-trial": "workspace:*"
+    "@hourglass/evolution-trial": "workspace:*",
+    "@hourglass/sandbox-capabilities": "workspace:*"
   }
 }
