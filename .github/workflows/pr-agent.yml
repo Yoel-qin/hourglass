@@ -24,14 +24,17 @@ jobs:
         id: pragent
         uses: the-pr-agent/pr-agent@main
         env:
-          # TODO(填写): Settings > Secrets and variables > Actions > New repository secret
-          #   Name  = OPENAI_KEY
-          #   Value = 你的 API key（OpenAI，或任意 OpenAI 兼容网关的 key）
+          # GLM（BigModel）OpenAI 兼容端点：key 放在仓库 secret OPENAI_KEY 里
+          # 获取：open.bigmodel.cn 控制台 → API Keys → 创建/复制
           OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # 用 GLM（BigModel）等 OpenAI 兼容端点时，取消下面两行注释并填模型 id：
-          # OPENAI__API_BASE: https://open.bigmodel.cn/api/paas/v4
-          # CONFIG__MODEL: openai/<your-model-id>
+          OPENAI__API_BASE: https://open.bigmodel.cn/api/paas/v4
+          # 模型 id 以 open.bigmodel.cn 控制台的模型列表为准（glm-4.6 / glm-4.5-air 等）
+          CONFIG__MODEL: openai/glm-4.6
+          # 弱模型和主模型同源，避免默认值路由到 api.openai.com 报 401
+          CONFIG__MODEL_WEAK: openai/glm-4.6
+          # 不要回退到 BigModel 上不存在的默认 OpenAI 模型
+          CONFIG__FALLBACK_MODELS: '[]'
           GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: 'true'
           GITHUB_ACTION_CONFIG__AUTO_REVIEW: 'true'
           GITHUB_ACTION_CONFIG__AUTO_IMPROVE: 'true'
