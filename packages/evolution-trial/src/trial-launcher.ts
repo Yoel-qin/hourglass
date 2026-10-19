@@ -1,0 +1,135 @@
+/**
+ * One-shot trial launcher (v3.1 §5, ADR-003 D2): spawns the trial-driver as
+ * an INDEPENDENT child process and speaks JSON over stdio. The confinement
+ * plugins (audit/net/read/rsrc) are mounted inside that child — never in
+ * this process — so the parent (runner/evaluator) never assumes its own
+ * decorators bind the trial. The watchdog kills the whole child on timeout;
+ * there is no fallback to in-process execution.
+ */
+
+import { spawn } from 'node:child_process'
+import { chmodSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import type { TrialConfinement } from './confine-trial.ts'
+
+export interface TrialCommand {
+  readonly callId: string
+  readonly command: string
+}
+
+export interface TrialRequest {
+  readonly trialId: string
+  readonly workspaceRoot: string
+  readonly ledgerPath: string
+  readonly commands: readonly TrialCommand[]
+  readonly confinement: TrialConfinement
+  /** Driver override for tests; default resolution is container-first. */
+  readonly driverPath?: string
+}
+
+export interface TrialCommandResult {
+  readonly callId: string
+  readonly exitCode: number
+  readonly stdout: string
+  readonly stderr: string
+  readonly denied: boolean
+}
+
+export interface TrialResponse {
+  readonly ok: boolean
+  /** Child-side evidence: the driver process's own PID (EVO-TRIAL-01). */
+  readonly driverPid?: number
+  readonly results: readonly TrialCommandResult[]
+  readonly ledger: readonly unknown[]
+  readonly error?: string
+  readonly timedOut?: boolean
+}
+
+export function resolveDriverPath(explicit?: string): string {
+  const candidates = [
+    explicit,
+    process.env['HOURGLASS_EVOLUTION_DRIVER'],
+    // Fused workspace copy (container): resolves @hourglass/@deepseek-ai deps.
+    '/opt/dsh/packages/hourglass/evolution-driver/trial-driver.ts',
+    // Repo layout (relative to this package's src/).
+    join(dirnameOf(import.meta.url), '..', '..', '..', 'scripts', 'sandbox-evolution', 'driver', 'trial-driver.ts'),
+  ].filter((value): value is string => typeof value === 'string' && value !== '')
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate
+  }
+  throw new Error(`trial-driver-not-found:${candidates.join(' | ')}`)
+}
+
+function driverCwd(): string {
+  return existsSync('/opt/dsh') ? '/opt/dsh' : process.cwd()
+}
+
+export async function runTrial(request: TrialRequest): Promise<TrialResponse> {
+  const driverPath = resolveDriverPath(request.driverPath)
+  // The rsrc budget's nproc cap is enforced with a setpriv uid downgrade, so
+  // the trial (running as an unprivileged uid) must be able to write its own
+  // workspace. The launcher owns workspace preparation for exactly this
+  // reason; the store, journal and benchmark paths are never touched.
+  chmodSync(request.workspaceRoot, 0o777)
+  const payload = JSON.stringify({
+    workspaceRoot: request.workspaceRoot,
+    ledgerPath: request.ledgerPath,
+    commands: request.commands,
+    net: request.confinement.net,
+    ...(request.confinement.readDeny.length > 0 ? { readDeny: request.confinement.readDeny } : {}),
+    rsrc: request.confinement.rsrc,
+  })
+  return await new Promise<TrialResponse>(resolve => {
+    const child = spawn(process.execPath, ['--experimental-strip-types', driverPath], {
+      cwd: driverCwd(),
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL')
+      if (!settled) {
+        settled = true
+        resolve({ ok: false, results: [], ledger: [], error: 'trial-watchdog-timeout', timedOut: true })
+      }
+    }, request.confinement.watchdogMs)
+    child.stdout.on('data', chunk => {
+      stdout += String(chunk)
+    })
+    child.stderr.on('data', chunk => {
+      stderr += String(chunk)
+    })
+    child.on('error', error => {
+      clearTimeout(timer)
+      if (!settled) {
+        settled = true
+        resolve({ ok: false, results: [], ledger: [], error: `driver-spawn-failed:${error.message}` })
+      }
+    })
+    child.on('close', () => {
+      clearTimeout(timer)
+      if (settled) return
+      settled = true
+      const text = stdout.trim()
+      if (text === '') {
+        resolve({ ok: false, results: [], ledger: [], error: `driver-no-output:stderr=${stderr.slice(0, 500)}` })
+        return
+      }
+      try {
+        const lastLine = text.split('\n').pop() ?? ''
+        resolve(JSON.parse(lastLine) as TrialResponse)
+      } catch (error) {
+        resolve({ ok: false, results: [], ledger: [], error: `driver-output-unparseable:${String(error)}` })
+      }
+    })
+    child.stdin.write(payload)
+    child.stdin.end()
+  })
+}
+
+function dirnameOf(url: string): string {
+  const path = fileURLToPath(url)
+  return path.slice(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')))
+}

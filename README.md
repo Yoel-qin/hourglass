@@ -23,6 +23,30 @@ DSH（DeepSeek Harness）沙箱治理插件 + 可复现开源沙箱对比测试�
 | **@hourglass/sandbox-capabilities** | 能力清单 | 五能力 × 五后端矩阵；`enforced` 只能由 probe/test-result 证据支撑；查询命令 `/sandbox-capabilities` |
 | **@hourglass/policy-ci** | 策略回归 | 合成 fixture + 纯函数语义模型 → 决策回放与 diff；CI 零网络/零模型；golden 字节稳定 |
 
+## 自进化安全试炼场（evolution v2，`feat/evolution-v2` 分支增量）
+
+在六包治理底座之上按
+[《自进化安全试炼场方案 v3.1》](DeepSeek-Harness-自进化安全试炼场-增量开发测试方案-v3.1.md)
+增量开发：候选（仅 DSH `SKILL.md` 与受控提示词片段）必须先封存进不可变
+内容寻址库，经一次性独立子进程试炼（插件装载在子进程内、命令过
+net→read→rsrc→bwrap confine 链），按冻结基准与锁定阈值四态判定
+（`pass/reject/inconclusive/blocked`），唯一晋级路径是导出 hash 绑定
+验证包 + 人工批准 + 人工应用。自动晋级与生产 Shadow 默认移出 MVP。
+决策记录见 [ADR-003](docs/ADR-003-evolution-scope.md)，基线实测见
+[docs/evolution/E0-baseline-20261019.md](docs/evolution/E0-baseline-20261019.md)。
+
+| 增量 | 职责 |
+|---|---|
+| **@hourglass/evolution-contract** | 纯函数契约：候选 schema 校验（未知字段/资产/风险层级/能力扩张拒绝）、生命周期状态机（不可跳过人工批准）、冻结基准 manifest + hash 锁、四态判定器（安全硬门禁优先、零跳过、95% CI 严格改进）、晋级策略与 decision digest；16 场景 golden 字节冻结 |
+| **@hourglass/evolution-trial** | 试炼运行时：不可变候选库（封存 `wx` + 内容寻址 + 幂等去重 + 防 TOCTOU 复验）、hash-chain 演化 journal（篡改/删行可检出）、一次性 trial-driver 启动器（独立子进程 + 看门狗，无进程内回退）、验证包导出（仅 `pass` 可导出、审批前校验失败）、`sandbox-evolution` 只读查询命令 |
+| `scripts/sandbox-evolution/driver/` | trial-driver 子进程：挂载 audit(strict)/net/read/rsrc，唯一工具 `trial_exec` 恒为 workspace-write；**不注册任何宿主出口工具**（NET-13 教训：`web_fetch` 等 harness 侧工具是独立出口，唯一可靠手段是物理不存在） |
+
+已交付里程碑（容器内实测）：E0（ADR-003 + 12 条 DSH 源码核验 + 覆盖率
+门禁启用探针：per-file 100% 阈值可触发、作用域可限定）、E1（契约包 56
+测试 + golden）、E2（trial 子进程隔离：独立 PID、deny-read canary 零泄漏
+（含 symlink 别名）、egress 服务端零记录、fsize 内核截停）。单测
+150+ 全绿；存量六包与 compare 框架零改动（versions-lock sha256 不变）。
+
 ## 安装
 
 前置条件：Docker（本机验证版本 29.7.2，Docker Desktop on WSL2）。
@@ -351,11 +375,27 @@ packages/policy-ci/        @hourglass/policy-ci（+ golden fixtures）
 packages/net/              @hourglass/sandbox-net
 packages/read/             @hourglass/sandbox-read
 packages/rsrc/             @hourglass/sandbox-rsrc
+packages/evolution-contract/   @hourglass/evolution-contract（evolution v2）
+packages/evolution-trial/      @hourglass/evolution-trial（evolution v2）
 scripts/sandbox-compare/   对比测试（43 case、versions.lock、WASI 固件源码）
+scripts/sandbox-evolution/ 自进化试炼 driver 与编排（evolution v2）
 docker/                    三阶段 Dockerfile + compose + entrypoint + vendor/
 docs/                      ADR-001/002、learning-guide、competitive-analysis、assets/（图表）
 reports/                   final-report.md + runs/（原始 JSON 数据）
 ```
+
+## Testing hooks
+
+各包的纯函数注入点（无需真实沙箱即可全覆盖，容器内 `hourglass-entrypoint unit` 统一执行）：
+
+- audit：`classifyOutcome` / `extractSandboxFacts` / `summarizeArguments` / `verifyAuditChain`
+- capabilities：`buildManifest`（纯函数可直调）
+- policy-ci：`decide` / `replay` / `replayDiff`（golden 字节稳定，`pnpm golden:policy-ci` 重生成）
+- net/read/rsrc：confine argv 重写函数与判定纯函数
+- evolution-contract：`validateCandidateManifest` / `transition` / `validateBenchmarkManifest` /
+  `evaluate` / `canExportValidationPack` / `verifyValidationPack` / `decisionDigest`
+- evolution-trial：`CandidateStore`（临时目录即可）/ `EvolutionJournal.verify` /
+  `exportValidationPack` / `runTrial`（集成测试需容器 bwrap lane，证据取子进程侧与服务端 canary）
 
 ## 开发
 

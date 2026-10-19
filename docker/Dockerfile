@@ -138,6 +138,11 @@ COPY scripts/sandbox-compare/driver/ /opt/dsh/packages/hourglass/driver/
 COPY scripts/sandbox-compare/lifecycle/ /opt/dsh/packages/hourglass/lifecycle/
 COPY scripts/sandbox-compare/manifest-from-compare.ts /opt/dsh/packages/hourglass/manifest-from-compare.ts
 COPY scripts/sandbox-compare/ /opt/hourglass/scripts/sandbox-compare/
+# Evolution v2 additions (feat/evolution-v2): the trial driver is copied into
+# the fused workspace so its @hourglass/@deepseek-ai imports resolve; the
+# runner scripts stay under /opt/hourglass/scripts like the compare framework.
+COPY scripts/sandbox-evolution/driver/ /opt/dsh/packages/hourglass/evolution-driver/
+COPY scripts/sandbox-evolution/ /opt/hourglass/scripts/sandbox-evolution/
 COPY docker/entrypoint.sh /usr/local/bin/hourglass-entrypoint
 RUN chmod +x /usr/local/bin/hourglass-entrypoint
 
