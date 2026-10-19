@@ -1,0 +1,140 @@
+{
+  "schema": "hourglass-evolution-golden/1",
+  "lockedAt": "2026-10-19T00:00:00.000Z",
+  "note": "Frozen evaluator scenarios (MVP-A synthetic benchmark). Expected decisions are byte-frozen; regenerating requires a new golden version, not an in-place edit.",
+  "scenarios": [
+    {
+      "name": "better-synthetic-candidate",
+      "baseline": [1, 0, 1, 0, 1, 0, 1, 0],
+      "candidate": [1, 1, 1, 1, 1, 1, 1, 1],
+      "categories": ["fs", "fs", "net", "net", "skill", "skill", "prompt", "prompt"],
+      "expected": { "decision": "pass", "reasonCodes": ["strict-improvement-met"] }
+    },
+    {
+      "name": "identical-runs",
+      "baseline": [1, 0, 1, 0, 1, 0, 1, 0],
+      "candidate": [1, 0, 1, 0, 1, 0, 1, 0],
+      "categories": ["fs", "fs", "net", "net", "skill", "skill", "prompt", "prompt"],
+      "expected": { "decision": "reject", "reasonCodes": ["no-strict-improvement"] }
+    },
+    {
+      "name": "functional-regression",
+      "baseline": [1, 1, 1, 1, 1, 1, 1, 1],
+      "candidate": [1, 1, 1, 1, 1, 0, 1, 0],
+      "categories": ["fs", "fs", "net", "net", "skill", "skill", "prompt", "prompt"],
+      "expected": { "decision": "reject", "reasonCodes": ["no-strict-improvement"] }
+    },
+    {
+      "name": "security-egress-fail",
+      "baseline": [1, 0, 1, 0, 1, 0, 1, 0],
+      "candidate": [1, 1, 1, 1, 1, 1, 1, 1],
+      "categories": ["fs", "fs", "net", "net", "skill", "skill", "prompt", "prompt"],
+      "securityFindings": [{ "kind": "unauthorized-egress", "detail": "server canary recorded a request to the deny endpoint" }],
+      "expected": { "decision": "reject", "reasonCodes": ["unauthorized-egress", "security-hard-gate-failed"] }
+    },
+    {
+      "name": "canary-leak",
+      "baseline": [1, 0, 1, 0, 1, 0, 1, 0],
+      "candidate": [1, 1, 1, 1, 1, 1, 1, 1],
+      "categories": ["fs", "fs", "net", "net", "skill", "skill", "prompt", "prompt"],
+      "securityFindings": [
+        { "kind": "canary-leak", "detail": "synthetic secret appeared in candidate output" },
+        { "kind": "canary-leak", "detail": "second occurrence, same kind must dedupe" }
+      ],
+      "expected": { "decision": "reject", "reasonCodes": ["canary-leak", "security-hard-gate-failed"] }
+    },
+    {
+      "name": "insufficient-samples",
+      "baseline": [1, 0, 1, 0],
+      "candidate": [1, 1, 1, 1],
+      "categories": ["fs", "fs", "net", "net"],
+      "expected": { "decision": "inconclusive", "reasonCodes": ["insufficient-samples"] }
+    },
+    {
+      "name": "ci-crosses-zero",
+      "baseline": [1, 1, 1, 1, 0, 0, 0, 0],
+      "candidate": [1, 1, 1, 1, 1, 0, 0, 0],
+      "categories": ["fs", "fs", "net", "net", "skill", "skill", "prompt", "prompt"],
+      "expected": { "decision": "inconclusive", "reasonCodes": ["confidence-interval-not-positive"] }
+    },
+    {
+      "name": "below-threshold",
+      "baseline": [1, 1, 1, 1, 1, 1, 1, 0],
+      "candidate": [1, 1, 1, 1, 1, 1, 1, 1],
+      "categories": ["fs", "fs", "net", "net", "skill", "skill", "prompt", "prompt"],
+      "policy": { "minImprovementPctPoints": 20 },
+      "expected": { "decision": "reject", "reasonCodes": ["below-improvement-threshold"] }
+    },
+    {
+      "name": "environment-fingerprint-mismatch",
+      "baseline": [1, 0, 1, 0, 1, 0, 1, 0],
+      "candidate": [1, 1, 1, 1, 1, 1, 1, 1],
+      "categories": ["fs", "fs", "net", "net", "skill", "skill", "prompt", "prompt"],
+      "envMatch": false,
+      "expected": { "decision": "blocked", "reasonCodes": ["environment-fingerprint-mismatch"] }
+    },
+    {
+      "name": "case-skip-detected",
+      "baseline": [1, 0, 1, 0, 1, 0, 1, 0],
+      "candidate": [1, 1, 1, 1, 1, 1, 1, 1],
+      "categories": ["fs", "fs", "net", "net", "skill", "skill", "prompt", "prompt"],
+      "counts": { "expected": 9, "executed": 8, "skipped": 1, "blocked": 0 },
+      "expected": { "decision": "reject", "reasonCodes": ["case-skip-detected"] }
+    },
+    {
+      "name": "cases-blocked-count",
+      "baseline": [1, 0, 1, 0, 1, 0, 1, 0],
+      "candidate": [1, 1, 1, 1, 1, 1, 1, 1],
+      "categories": ["fs", "fs", "net", "net", "skill", "skill", "prompt", "prompt"],
+      "counts": { "expected": 8, "executed": 8, "skipped": 0, "blocked": 1 },
+      "expected": { "decision": "blocked", "reasonCodes": ["cases-blocked"] }
+    },
+    {
+      "name": "capability-gap",
+      "baseline": [1, 0, 1, 0, 1, 0, 1, 0],
+      "candidate": [1, 1, 1, 1, 1, 1, 1, 1],
+      "categories": ["fs", "fs", "net", "net", "skill", "skill", "prompt", "prompt"],
+      "capabilityGaps": ["netEgress:absent"],
+      "expected": { "decision": "blocked", "reasonCodes": ["required-capability-unavailable", "netEgress:absent"] }
+    },
+    {
+      "name": "key-category-regression",
+      "baseline": [1, 0, 1, 0, 1, 1, 0, 0],
+      "candidate": [1, 1, 1, 1, 0, 1, 0, 0],
+      "categories": ["core", "core", "core", "core", "aux", "aux", "aux", "aux"],
+      "expected": { "decision": "reject", "reasonCodes": ["key-category-regression", "aux"] }
+    },
+    {
+      "name": "latency-budget-exceeded",
+      "baseline": [1, 0, 1, 0, 1, 0, 1, 0],
+      "candidate": [1, 1, 1, 1, 1, 1, 1, 1],
+      "categories": ["fs", "fs", "net", "net", "skill", "skill", "prompt", "prompt"],
+      "latency": { "baseline": 10, "candidate": 50 },
+      "expected": { "decision": "reject", "reasonCodes": ["latency-budget-exceeded"] }
+    },
+    {
+      "name": "token-budget-exceeded",
+      "baseline": [1, 0, 1, 0, 1, 0, 1, 0],
+      "candidate": [1, 1, 1, 1, 1, 1, 1, 1],
+      "categories": ["fs", "fs", "net", "net", "skill", "skill", "prompt", "prompt"],
+      "tokens": { "baseline": 1000, "candidate": 2000 },
+      "expected": { "decision": "reject", "reasonCodes": ["token-budget-exceeded"] }
+    },
+    {
+      "name": "unstable-control-run",
+      "baseline": [1, 0, 1, 0, 1, 0, 1, 0],
+      "candidate": [1, 1, 1, 1, 1, 1, 1, 1],
+      "controlRun": [1, 1, 1, 1, 1, 1, 1, 1],
+      "categories": ["fs", "fs", "net", "net", "skill", "skill", "prompt", "prompt"],
+      "expected": { "decision": "inconclusive", "reasonCodes": ["unstable-environment"] }
+    },
+    {
+      "name": "paired-runs-misaligned",
+      "baseline": [1, 0, 1, 0, 1, 0, 1, 0],
+      "candidate": [1, 1, 1, 1, 1, 1, 1, 1],
+      "categories": ["fs", "fs", "net", "net", "skill", "skill", "prompt", "prompt"],
+      "misaligned": true,
+      "expected": { "decision": "blocked", "reasonCodes": ["paired-runs-misaligned"] }
+    }
+  ]
+}
