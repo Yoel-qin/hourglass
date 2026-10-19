@@ -40,5 +40,6 @@ jobs:
           GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: 'true'
           GITHUB_ACTION_CONFIG__AUTO_REVIEW: 'true'
           GITHUB_ACTION_CONFIG__AUTO_IMPROVE: 'true'
-          # 个人仓库：单个工具失败不要把 PR 状态打成红叉
-          GITHUB_ACTION_CONFIG__FAIL_ON_TOOL_ERRORS: 'false'
+          # 门禁语义（2026-10-19 起）：工具失败必须把 PR 打成红叉——
+          # 合并前要求本流水线全绿；失败只看 Actions 状态，不再埋在评论里。
+          GITHUB_ACTION_CONFIG__FAIL_ON_TOOL_ERRORS: 'true'
