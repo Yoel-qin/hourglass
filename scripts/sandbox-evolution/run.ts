@@ -76,14 +76,21 @@ function sha256File(path: string): string {
  * The environment gate must compare against an INDEPENDENT source, not the
  * same variable that populated the sealed manifests (PR #4 review finding:
  * a tautological comparison is fail-open). The installed DSH tree is a real
- * git checkout (tagged with its vendored commit), so rev-parse is that
- * source; if it cannot be read, the environment is treated as mismatched.
+ * git checkout; in the container image the upstream commit is recorded as a
+ * TAG on the materialized commit (docker/Dockerfile tags it with the pinned
+ * sha), so prefer the tag and fall back to HEAD for plain checkouts. If the
+ * tree cannot be read at all, the environment is treated as mismatched.
  */
 function detectInstalledDshCommit(): string | undefined {
   for (const dshRoot of ['/opt/dsh', join(BASE_DIR, '..', '..', '..', 'deepseek-harness')]) {
-    if (!existsSync(dshRoot)) continue
-    const result = spawnSync('git', ['-C', dshRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' })
-    if (result.status === 0) return (result.stdout ?? '').trim()
+    if (!existsSync(join(dshRoot, '.git'))) continue
+    const tag = spawnSync('git', ['-C', dshRoot, 'tag', '--points-at', 'HEAD'], { encoding: 'utf8' })
+    if (tag.status === 0) {
+      const first = (tag.stdout ?? '').trim().split('\n')[0] ?? ''
+      if (first !== '') return first
+    }
+    const head = spawnSync('git', ['-C', dshRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' })
+    if (head.status === 0) return (head.stdout ?? '').trim()
   }
   return undefined
 }
