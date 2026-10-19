@@ -50,8 +50,11 @@ export function resolveDriverPath(explicit?: string): string {
   const candidates = [
     explicit,
     process.env['HOURGLASS_EVOLUTION_DRIVER'],
-    // Fused workspace copy (container): resolves @hourglass/@deepseek-ai deps.
+    // Fused workspace copies (container): resolve @hourglass/@deepseek-ai deps.
+    // The sibling layout is the proven one — pnpm links it like the compare
+    // driver; the nested evolution-runner/driver copy stays as a fallback.
     '/opt/dsh/packages/hourglass/evolution-driver/trial-driver.ts',
+    '/opt/dsh/packages/hourglass/evolution-runner/driver/trial-driver.ts',
     // Repo layout (relative to this package's src/).
     join(dirnameOf(import.meta.url), '..', '..', '..', 'scripts', 'sandbox-evolution', 'driver', 'trial-driver.ts'),
   ].filter((value): value is string => typeof value === 'string' && value !== '')

@@ -1,0 +1,22 @@
+{
+  "schema": "hourglass-evolution-lock/1",
+  "lockedAt": "2026-10-19T00:00:00.000Z",
+  "lockReason": "E3 baseline lock for the evolution benchmark; every report must quote this file's SHA-256. versions.lock.json (sandbox-compare) is deliberately untouched per ADR-003 D7.",
+  "dshCommit": "d743267388641bc76f17c45ce8b4c231aed1d32c",
+  "files": {
+    "benchmark/public.json": "ef2fec46f2ce2f4dac59afc4c5e47229839a9cf43bb0d8e842685d213191a108",
+    "benchmark/hidden.json": "bf62f115704ba15bf952812726d531c37c6b90aecbb4fb973cef174af6499830",
+    "benchmark/security.json": "ee8ae8525843af7b6edbfc5499f6b96efd60d3fb29488533f5aadb1a67d48f87",
+    "fixtures/parent-skill.md": "f387cd21cd5582dd5234254bd8dd523833929699fcc99768bc262657c32de3aa",
+    "fixtures/candidate-skill.md": "a38b50417f98577cc553bb715882b15353fe10b7ad6d6fb431f97ed3b1537447"
+  },
+  "policy": {
+    "primaryMetric": "task-contract-success",
+    "minImprovementPctPoints": 2,
+    "ciConfidence": 0.95,
+    "minPairedSamples": 8,
+    "keyCategoryRegressionBudgetPct": 0,
+    "costLatencyDegradationBudgetPct": 10,
+    "controlRunTolerancePct": 5
+  }
+}
