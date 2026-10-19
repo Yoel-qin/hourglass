@@ -363,3 +363,8 @@ reports/                   final-report.md + runs/（原始 JSON 数据）
   （classify/decide/confine 重写函数等）无需真实沙箱即可全覆盖。
 - 竞品分析再生产：三仓库本地 clone（sandbox-runtime/wasmer/CubeSandbox）
   的调研方法与证据索引见 docs/competitive-analysis.md §8。
+
+## 沙箱审计快速上手
+
+    /sandbox-audit --last
+
