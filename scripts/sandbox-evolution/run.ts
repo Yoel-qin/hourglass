@@ -19,6 +19,7 @@
  */
 
 import { createHash } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -69,6 +70,22 @@ function argValue(name: string): string | undefined {
 
 function sha256File(path: string): string {
   return createHash('sha256').update(readFileSync(path, 'utf8'), 'utf8').digest('hex')
+}
+
+/**
+ * The environment gate must compare against an INDEPENDENT source, not the
+ * same variable that populated the sealed manifests (PR #4 review finding:
+ * a tautological comparison is fail-open). The installed DSH tree is a real
+ * git checkout (tagged with its vendored commit), so rev-parse is that
+ * source; if it cannot be read, the environment is treated as mismatched.
+ */
+function detectInstalledDshCommit(): string | undefined {
+  for (const dshRoot of ['/opt/dsh', join(BASE_DIR, '..', '..', '..', 'deepseek-harness')]) {
+    if (!existsSync(dshRoot)) continue
+    const result = spawnSync('git', ['-C', dshRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' })
+    if (result.status === 0) return (result.stdout ?? '').trim()
+  }
+  return undefined
 }
 
 const BASE_DIR = dirname(fileURLToPath(import.meta.url))
@@ -174,14 +191,26 @@ async function main(): Promise<number> {
     console.error('[evolution] sealed artifact failed post-seal verification')
     return 3
   }
-  // Environment gate input is MEASURED: sealed fingerprints must equal the
-  // fingerprint derived from the validated lock, or the evaluator blocks.
-  const environmentFingerprintMatch = baselineManifest.environmentFingerprint === runtimeFingerprint
+  // Environment gate input is MEASURED against an independent source: the
+  // installed DSH checkout's actual commit must equal the lock's pinned
+  // commit, and the sealed fingerprints must equal the lock-derived value.
+  // Any failure here (including an unreadable git tree) is a mismatch.
+  const installedDshCommit = detectInstalledDshCommit()
+  const environmentFingerprintMatch = installedDshCommit === lock.lock.dshCommit
+    && baselineManifest.environmentFingerprint === runtimeFingerprint
     && candidateManifest.environmentFingerprint === runtimeFingerprint
+  if (!environmentFingerprintMatch) {
+    console.error(`[evolution] environment mismatch: installed=${installedDshCommit ?? 'unreadable'} lock=${lock.lock.dshCommit}`)
+  }
 
   // 5. Paired trials. The adapter is deterministic directive coverage: a
   //    functional case runs when the run's text carries its marker. Hidden
   //    expectations never leave this process — the driver gets commands only.
+  //    Design note (PR #4 review): the shipped candidate fixture DELIBERATELY
+  //    contains every marker including the hidden set — that is what a
+  //    "clearly better synthetic candidate" means for EVO-BENCH-02. "Hidden"
+  //    means hidden from the trial process, not secret from the in-repo
+  //    fixture author; real-request candidates never see the fixture tree.
   const runFunctional = async (text: string, runId: string): Promise<RunSummary> => {
     const workspace = workspaceOf(runId)
     const selected = functional.filter(benchmarkCase => text.includes(benchmarkCase.marker))
@@ -294,7 +323,10 @@ async function main(): Promise<number> {
   //    any skip into a non-pass verdict (PR #3 review finding).
   const expectedCommands = functional.length + securityCases.length
   const executedCommands = candidateResponse.results.length
-  const skippedCases = functional.length - selected.length
+  // Every expected command without an outcome — functional-unselected or a
+  // security probe that never produced a result — counts as skipped (PR #4
+  // review finding: the zero-skip discipline must cover the full set).
+  const skippedCases = Math.max(0, expectedCommands - executedCommands)
   const executionCounts = { expected: expectedCommands, executed: executedCommands, skipped: skippedCases, blocked: 0 }
 
   // 8. Four-state evaluation (contract; thresholds come from the lock).

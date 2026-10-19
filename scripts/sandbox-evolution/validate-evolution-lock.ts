@@ -50,7 +50,10 @@ export function validateEvolutionLock(baseDir: string): LockValidationResult {
     return { ok: false, errors: ['lock-file-missing'], lockSha256: '' }
   }
   const lockRaw = readFileSync(lockPath, 'utf8')
-  const lockSha256 = createHash('sha256').update(lockRaw, 'utf8').digest('hex')
+  // The lock's own digest is computed over LF-normalized content too, so the
+  // `versionsLockSha256` binding (sealed into manifests and packs) is
+  // reproducible across Windows (autocrlf) and Linux checkouts.
+  const lockSha256 = createHash('sha256').update(lockRaw.replace(/\r\n/g, '\n'), 'utf8').digest('hex')
   let parsed: { files?: Record<string, string>; dshCommit?: string; policy?: Record<string, unknown> }
   try {
     parsed = JSON.parse(lockRaw) as { files?: Record<string, string>; dshCommit?: string; policy?: Record<string, unknown> }
@@ -88,6 +91,12 @@ export function validateEvolutionLock(baseDir: string): LockValidationResult {
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
       errors.push(`malformed-field:policy.${field}`)
     }
+  }
+  if (typeof policy?.['ciConfidence'] === 'number' && (policy['ciConfidence'] <= 0 || policy['ciConfidence'] >= 1)) {
+    errors.push('malformed-field:policy.ciConfidence-range')
+  }
+  if (typeof policy?.['minPairedSamples'] === 'number' && (!Number.isInteger(policy['minPairedSamples']) || policy['minPairedSamples'] < 1)) {
+    errors.push('malformed-field:policy.minPairedSamples-range')
   }
   if (errors.length > 0 || typeof parsed.dshCommit !== 'string' || policy === undefined) {
     return { ok: false, errors, lockSha256 }

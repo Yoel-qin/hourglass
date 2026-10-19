@@ -23,13 +23,30 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p docker/vendor
+          # nsjail/codex/wasmer/zig/DSH come from immutable version- or
+          # commit-pinned URLs; kafel upstream publishes no tags, so its
+          # moving master ref is pinned BY DIGEST in the verification step
+          # below (any upstream movement fails the build instead of
+          # silently building different privileged-container code).
           curl -fsSL -o docker/vendor/nsjail-3.6.tar.gz https://github.com/google/nsjail/archive/refs/tags/3.6.tar.gz
           curl -fsSL -o docker/vendor/kafel-master.tar.gz https://github.com/google/kafel/archive/refs/heads/master.tar.gz
           curl -fsSL -o docker/vendor/dsh-d743267.tar.gz https://codeload.github.com/deepseek-ai/deepseek-harness/tar.gz/d743267388641bc76f17c45ce8b4c231aed1d32c
           curl -fsSL -o docker/vendor/codex-0.162.1.tar.gz https://github.com/openai/codex/releases/download/rust-v0.162.1/codex-x86_64-unknown-linux-musl.tar.gz
           curl -fsSL -o docker/vendor/wasmer-v7.3.0-linux-amd64.tar.gz https://github.com/wasmerio/wasmer/releases/download/v7.3.0/wasmer-linux-amd64.tar.gz
           curl -fsSL -o docker/vendor/zig-0.13.0.tar.xz https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz
-          ls -la docker/vendor
+
+      - name: Verify vendored tarball digests (PR #4 review finding)
+        run: |
+          set -euo pipefail
+          cd docker/vendor
+          sha256sum -c <<'DIGESTS'
+          9731a07dc9f019b01b67292a96a4dd879873f6456e0ef6d51b1cdb553aa7e1cd  nsjail-3.6.tar.gz
+          30a5e708a39a063114c3ae5e03758e0d138a56856c297731f3643eee038394b9  kafel-master.tar.gz
+          414db357dda081d11d531ea3e9969f48fa0502809ff579396c3c2bbf7e109253  dsh-d743267.tar.gz
+          86f268d81b898f3e144c5ecff2ad2fda2c5802e042d6195b72538fe0fa125057  codex-0.162.1.tar.gz
+          9b9a42c48d8c807ae1602cdd75fcb91d294824ae131ca9281eeca3710f75e4c3  wasmer-v7.3.0-linux-amd64.tar.gz
+          d45312e61ebcc48032b77bc4cf7fd6915c11fa16e4aad116b66c9468211230ea  zig-0.13.0.tar.xz
+          DIGESTS
 
       - name: Strip the local-proxy ENV lines (no host proxy on GH runners)
         run: sed -i '/host\.docker\.internal/d' docker/Dockerfile
