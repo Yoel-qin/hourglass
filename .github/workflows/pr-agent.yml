@@ -1,0 +1,42 @@
+name: PR Agent
+
+# PR-Agent 以 GitHub Action 方式运行：PR 打开/更新时自动 describe/review/improve，
+# 在 PR 评论里输入 /review /describe /improve /ask "..." 等命令可手动触发。
+# 用法文档: https://docs.pr-agent.ai/installation/github/
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+  issue_comment:
+
+jobs:
+  pr_agent_job:
+    # 只响应真人和 PR 相关事件，避免机器人评论自触发循环
+    if: ${{ github.event.sender.type != 'Bot' && (github.event_name == 'pull_request_target' || github.event.issue.pull_request) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    name: Run pr agent on every pull request, respond to user comments
+    steps:
+      - name: PR Agent action step
+        id: pragent
+        uses: the-pr-agent/pr-agent@main
+        env:
+          # DeepSeek（OpenAI 兼容端点）：key 放在仓库 secret OPENAI_KEY 里
+          # 获取：platform.deepseek.com → API Keys → 创建/复制
+          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENAI__API_BASE: https://api.deepseek.com
+          # 模型 id 以 DeepSeek 控制台的模型列表为准
+          CONFIG__MODEL: openai/deepseek-v4.1-flash
+          # 弱模型和主模型同源，避免默认值路由到 api.openai.com 报 401
+          CONFIG__MODEL_WEAK: openai/deepseek-v4.1-flash
+          # 不要回退到 DeepSeek 上不存在的默认 OpenAI 模型
+          CONFIG__FALLBACK_MODELS: '[]'
+          GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: 'true'
+          GITHUB_ACTION_CONFIG__AUTO_REVIEW: 'true'
+          GITHUB_ACTION_CONFIG__AUTO_IMPROVE: 'true'
+          # 个人仓库：单个工具失败不要把 PR 状态打成红叉
+          GITHUB_ACTION_CONFIG__FAIL_ON_TOOL_ERRORS: 'false'
