@@ -1,0 +1,11 @@
+{
+  "name": "@hourglass/evolution-runner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "In-workspace evolution gate runner (lock gate, paired trials, evaluation, validation pack; not published)",
+  "type": "module",
+  "dependencies": {
+    "@hourglass/evolution-contract": "workspace:*",
+    "@hourglass/evolution-trial": "workspace:*"
+  }
+}

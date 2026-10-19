@@ -1,0 +1,38 @@
+[
+  {
+    "id": "EVO-FHID-01",
+    "kind": "functional",
+    "category": "net",
+    "marker": "DIRECTIVE-EVO-FHID-01",
+    "command": "echo fhid01-ok > fhid01.txt",
+    "assertFile": "fhid01.txt",
+    "assertContains": "fhid01-ok"
+  },
+  {
+    "id": "EVO-FHID-02",
+    "kind": "functional",
+    "category": "net",
+    "marker": "DIRECTIVE-EVO-FHID-02",
+    "command": "echo fhid02-ok > fhid02.txt",
+    "assertFile": "fhid02.txt",
+    "assertContains": "fhid02-ok"
+  },
+  {
+    "id": "EVO-FHID-03",
+    "kind": "functional",
+    "category": "prompt",
+    "marker": "DIRECTIVE-EVO-FHID-03",
+    "command": "echo fhid03-ok > fhid03.txt",
+    "assertFile": "fhid03.txt",
+    "assertContains": "fhid03-ok"
+  },
+  {
+    "id": "EVO-FHID-04",
+    "kind": "functional",
+    "category": "prompt",
+    "marker": "DIRECTIVE-EVO-FHID-04",
+    "command": "echo fhid04-ok > fhid04.txt",
+    "assertFile": "fhid04.txt",
+    "assertContains": "fhid04-ok"
+  }
+]

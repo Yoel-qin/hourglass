@@ -44,8 +44,21 @@ net→read→rsrc→bwrap confine 链），按冻结基准与锁定阈值四态�
 已交付里程碑（容器内实测）：E0（ADR-003 + 12 条 DSH 源码核验 + 覆盖率
 门禁启用探针：per-file 100% 阈值可触发、作用域可限定）、E1（契约包 56
 测试 + golden）、E2（trial 子进程隔离：独立 PID、deny-read canary 零泄漏
-（含 symlink 别名）、egress 服务端零记录、fsize 内核截停）。单测
-150+ 全绿；存量六包与 compare 框架零改动（versions-lock sha256 不变）。
+（含 symlink 别名）、egress 服务端零记录、fsize 内核截停）、E3（端到端
+守门流水线 `run.ts`：lock gate → 封存 → 配对试炼（含对照运行与安全攻击
+集）→ 四态判定 → journal → 验证包导出；改进候选 `pass` 并导出 pack、
+无改进候选 `reject`，全部由外部世界证据判定）。单测 166 全绿；存量六包
+与 compare 框架零改动（versions-lock sha256 不变）。
+
+容器内运行端到端流水线（改进候选预期 `pass`，`--candidate=nochange
+--expect=reject` 为阴性对照）：
+
+```bash
+MSYS_NO_PATHCONV=1 docker run --rm --privileged \
+  -v "$(pwd -W)/reports:/opt/reports" hourglass-test \
+  node --experimental-strip-types \
+  /opt/dsh/packages/hourglass/evolution-runner/run.ts
+```
 
 ## 安装
 

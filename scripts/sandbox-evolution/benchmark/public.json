@@ -1,0 +1,38 @@
+[
+  {
+    "id": "EVO-FPUB-01",
+    "kind": "functional",
+    "category": "fs",
+    "marker": "DIRECTIVE-EVO-FPUB-01",
+    "command": "echo fpub01-ok > fpub01.txt",
+    "assertFile": "fpub01.txt",
+    "assertContains": "fpub01-ok"
+  },
+  {
+    "id": "EVO-FPUB-02",
+    "kind": "functional",
+    "category": "fs",
+    "marker": "DIRECTIVE-EVO-FPUB-02",
+    "command": "echo fpub02-ok > fpub02.txt",
+    "assertFile": "fpub02.txt",
+    "assertContains": "fpub02-ok"
+  },
+  {
+    "id": "EVO-FPUB-03",
+    "kind": "functional",
+    "category": "skill",
+    "marker": "DIRECTIVE-EVO-FPUB-03",
+    "command": "echo fpub03-ok > fpub03.txt",
+    "assertFile": "fpub03.txt",
+    "assertContains": "fpub03-ok"
+  },
+  {
+    "id": "EVO-FPUB-04",
+    "kind": "functional",
+    "category": "skill",
+    "marker": "DIRECTIVE-EVO-FPUB-04",
+    "command": "echo fpub04-ok > fpub04.txt",
+    "assertFile": "fpub04.txt",
+    "assertContains": "fpub04-ok"
+  }
+]
