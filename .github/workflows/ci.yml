@@ -32,7 +32,7 @@ jobs:
           ls -la docker/vendor
 
       - name: Strip the local-proxy ENV lines (no host proxy on GH runners)
-        run: sed -i '/host\.docker\.internal:10808/d' docker/Dockerfile
+        run: sed -i '/host\.docker\.internal/d' docker/Dockerfile
 
       - name: Build the hourglass-test image
         run: docker build -t hourglass-test -f docker/Dockerfile .
