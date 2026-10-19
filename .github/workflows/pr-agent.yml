@@ -1,0 +1,39 @@
+name: PR Agent
+
+# PR-Agent 以 GitHub Action 方式运行：PR 打开/更新时自动 describe/review/improve，
+# 在 PR 评论里输入 /review /describe /improve /ask "..." 等命令可手动触发。
+# 用法文档: https://docs.pr-agent.ai/installation/github/
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+  issue_comment:
+
+jobs:
+  pr_agent_job:
+    # 只响应真人和 PR 相关事件，避免机器人评论自触发循环
+    if: ${{ github.event.sender.type != 'Bot' && (github.event_name == 'pull_request_target' || github.event.issue.pull_request) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    name: Run pr agent on every pull request, respond to user comments
+    steps:
+      - name: PR Agent action step
+        id: pragent
+        uses: the-pr-agent/pr-agent@main
+        env:
+          # TODO(填写): Settings > Secrets and variables > Actions > New repository secret
+          #   Name  = OPENAI_KEY
+          #   Value = 你的 API key（OpenAI，或任意 OpenAI 兼容网关的 key）
+          OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 用 GLM（BigModel）等 OpenAI 兼容端点时，取消下面两行注释并填模型 id：
+          # OPENAI__API_BASE: https://open.bigmodel.cn/api/paas/v4
+          # CONFIG__MODEL: openai/<your-model-id>
+          GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: 'true'
+          GITHUB_ACTION_CONFIG__AUTO_REVIEW: 'true'
+          GITHUB_ACTION_CONFIG__AUTO_IMPROVE: 'true'
+          # 个人仓库：单个工具失败不要把 PR 状态打成红叉
+          GITHUB_ACTION_CONFIG__FAIL_ON_TOOL_ERRORS: 'false'
