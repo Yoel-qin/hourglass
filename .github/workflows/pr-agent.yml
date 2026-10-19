@@ -35,6 +35,8 @@ jobs:
           CONFIG__MODEL_WEAK: openai/deepseek-v4.1-flash
           # 不要回退到 DeepSeek 上不存在的默认 OpenAI 模型
           CONFIG__FALLBACK_MODELS: '[]'
+          # 自定义模型不在 pr-agent 内置的 MAX_TOKENS 表里，需显式声明
+          CONFIG__CUSTOM_MODEL_MAX_TOKENS: '32000'
           GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: 'true'
           GITHUB_ACTION_CONFIG__AUTO_REVIEW: 'true'
           GITHUB_ACTION_CONFIG__AUTO_IMPROVE: 'true'
