@@ -39,7 +39,10 @@ export async function startNetRecorder(port = 0): Promise<NetRecorder> {
       response.end('hourglass-agent-carrier-recorder\n')
     })
   })
-  await new Promise<void>(resolve => server.listen(port, '0.0.0.0', resolve))
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject) // node always hands an Error here
+    server.listen(port, '0.0.0.0', () => resolve())
+  })
   const address = server.address() as { port: number }
   return {
     port: address.port,
