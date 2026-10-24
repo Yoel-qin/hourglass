@@ -80,4 +80,26 @@ describe('validateCandidateManifest (EVO-CAND contract semantics)', () => {
     expect(validateCandidateManifest(baseManifest({ benchmarkVersion: 0 })).errors).toContain('malformed-field:benchmarkVersion')
     expect(validateCandidateManifest(baseManifest({ createdAt: 'yesterday' })).errors).toContain('malformed-field:createdAt')
   })
+
+  it('rejects blank required string fields (malformed-field)', () => {
+    const result = validateCandidateManifest(baseManifest({ createdBy: '   ' }))
+    expect(result.ok).toBe(false)
+    expect(result.errors).toContain('malformed-field:createdBy')
+  })
+
+  it('rejects a non-array requestedCapabilities', () => {
+    const result = validateCandidateManifest(baseManifest({ requestedCapabilities: 'task-input-read' }))
+    expect(result.errors).toContain('malformed-field:requestedCapabilities')
+  })
+
+  it('rejects non-string capability entries', () => {
+    const result = validateCandidateManifest(baseManifest({ requestedCapabilities: [123 as never] }))
+    expect(result.errors).toContain('malformed-field:requestedCapabilities')
+    expect(result.errors).not.toContain('capability-escalation:123')
+  })
+
+  it('rejects malformed decisionReasonCodes', () => {
+    expect(validateCandidateManifest(baseManifest({ decisionReasonCodes: 'x' })).errors).toContain('malformed-field:decisionReasonCodes')
+    expect(validateCandidateManifest(baseManifest({ decisionReasonCodes: [1 as never] })).errors).toContain('malformed-field:decisionReasonCodes')
+  })
 })

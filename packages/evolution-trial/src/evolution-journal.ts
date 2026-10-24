@@ -28,11 +28,9 @@ export interface JournalEvent extends JournalRefs {
   readonly hash: string
 }
 
-export interface JournalVerifyResult {
-  readonly ok: boolean
-  readonly firstBadSeq?: number
-  readonly reason?: string
-}
+export type JournalVerifyResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly firstBadSeq: number; readonly reason: string }
 
 export class EvolutionJournal {
   private readonly path: string

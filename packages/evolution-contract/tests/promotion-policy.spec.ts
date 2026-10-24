@@ -109,4 +109,16 @@ describe('validation pack integrity (EVO-PROMOTE-01/08)', () => {
   it('refuses to build a pack from a non-pass decision', () => {
     expect(() => buildPack(baseBindings({ trialId: undefined }))).toThrow(/cannot export validation pack/)
   })
+
+  it('verification reports a non-pass decision even with approval recorded', () => {
+    const pack = buildPack(baseBindings({ trialId: 'trial-nonpass' }))
+    const rejected = {
+      ...pack,
+      decision: 'reject' as const,
+      approval: { approvedBy: 'reviewer', approvedAt: '2026-10-19T00:00:00.000Z', scope: 'manual-apply' },
+    }
+    const result = verifyValidationPack(rejected)
+    expect(result.ok).toBe(false)
+    expect(result.reasons).toContain('decision-not-pass:reject')
+  })
 })

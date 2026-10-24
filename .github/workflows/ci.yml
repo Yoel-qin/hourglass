@@ -63,6 +63,9 @@ jobs:
       - name: Unit tests (fused DSH workspace, incl. evolution integration specs)
         run: docker run --rm --privileged hourglass-test hourglass-entrypoint unit
 
+      - name: Evolution per-file 100% coverage gate
+        run: docker run --rm --privileged hourglass-test hourglass-entrypoint evolution-coverage
+
       - name: Evolution gate pipeline (improved candidate must pass)
         run: >-
           docker run --rm --privileged hourglass-test

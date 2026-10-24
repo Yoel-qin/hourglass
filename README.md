@@ -42,22 +42,26 @@ net→read→rsrc→bwrap confine 链），按冻结基准与锁定阈值四态�
 | `scripts/sandbox-evolution/driver/` | trial-driver 子进程：挂载 audit(strict)/net/read/rsrc，唯一工具 `trial_exec` 恒为 workspace-write；**不注册任何宿主出口工具**（NET-13 教训：`web_fetch` 等 harness 侧工具是独立出口，唯一可靠手段是物理不存在） |
 
 已交付里程碑（容器内实测）：E0（ADR-003 + 12 条 DSH 源码核验 + 覆盖率
-门禁启用探针：per-file 100% 阈值可触发、作用域可限定）、E1（契约包 56
-测试 + golden）、E2（trial 子进程隔离：独立 PID、deny-read canary 零泄漏
-（含 symlink 别名）、egress 服务端零记录、fsize 内核截停）、E3（端到端
-守门流水线 `run.ts`：lock gate → 封存 → 配对试炼（含对照运行与安全攻击
-集）→ 四态判定 → journal → 验证包导出；改进候选 `pass` 并导出 pack、
-无改进候选 `reject`，全部由外部世界证据判定）。单测 166 全绿；存量六包
-与 compare 框架零改动（versions-lock sha256 不变）。
+门禁启用）、E1（契约包 + 16 场景 golden）、E2（trial 子进程隔离：独立
+PID、deny-read canary 零泄漏（含 symlink 别名）、egress 服务端零记录、
+fsize 内核截停）、E3（端到端守门流水线：lock gate → 封存 → 配对试炼 →
+四态判定 → 验证包；改进候选 `pass`、无改进候选 `reject`，环境/能力门禁
+均为实测输入）、E4（entrypoint 接线 + **evolution 两包 per-file 100%
+覆盖门禁**，v3.1 §11.2 的 E0.6 承诺兑现）。单测 207 全绿；存量六包与
+compare 框架零改动（versions-lock sha256 不变）。`dsh-auto-evolve`
+对照 lane 证据化 not-run（理由见
+[docs/evolution/E0-baseline-20261019.md](docs/evolution/E0-baseline-20261019.md)）。
 
-容器内运行端到端流水线（改进候选预期 `pass`，`--candidate=nochange
---expect=reject` 为阴性对照）：
+容器内分项命令（均并入 `run-all`）：
 
 ```bash
-MSYS_NO_PATHCONV=1 docker run --rm --privileged \
-  -v "$(pwd -W)/reports:/opt/reports" hourglass-test \
-  node --experimental-strip-types \
-  /opt/dsh/packages/hourglass/evolution-runner/run.ts
+# evolution 守门流水线（改进候选必须 pass；--candidate=nochange 为阴性对照）
+docker run --rm --privileged -v "$(pwd -W)/reports:/opt/reports" \
+  hourglass-test hourglass-entrypoint evolution-smoke
+
+# evolution 两包 per-file 100% 覆盖门禁
+docker run --rm --privileged -v "$(pwd -W)/reports:/opt/reports" \
+  hourglass-test hourglass-entrypoint evolution-coverage
 ```
 
 ## 安装

@@ -183,17 +183,19 @@ export function computeMetrics(
   const latencyComparable = baselineLatencies.every(value => value !== undefined) && candidateLatencies.every(value => value !== undefined)
   const baselineP95 = latencyComparable ? p95(baselineLatencies as number[]) : undefined
   const candidateP95 = latencyComparable ? p95(candidateLatencies as number[]) : undefined
-  const latencyP95DegradationPct = baselineP95 !== undefined && baselineP95 > 0 && candidateP95 !== undefined
+  const latencyP95DegradationPct = latencyComparable && baselineP95 !== undefined && candidateP95 !== undefined && baselineP95 > 0
     ? ((candidateP95 - baselineP95) / baselineP95) * 100
     : undefined
 
-  const baselineTokens = baseline.every(outcome => outcome.costTokens !== undefined)
-    ? baseline.reduce((sum, outcome) => sum + (outcome.costTokens ?? 0), 0)
-    : undefined
-  const candidateTokens = candidate.every(outcome => outcome.costTokens !== undefined)
-    ? candidate.reduce((sum, outcome) => sum + (outcome.costTokens ?? 0), 0)
-    : undefined
-  const tokenDeltaPct = baselineTokens !== undefined && baselineTokens > 0 && candidateTokens !== undefined
+  // every() has already established all costTokens are present, so the cast
+  // is total; it avoids a dead `?? 0` fallback branch inside the reduce.
+  const tokenTotal = (cases: readonly CaseOutcome[]): number | undefined =>
+    cases.every(outcome => outcome.costTokens !== undefined)
+      ? cases.reduce((sum, outcome) => sum + (outcome.costTokens as number), 0)
+      : undefined
+  const baselineTokens = tokenTotal(baseline)
+  const candidateTokens = tokenTotal(candidate)
+  const tokenDeltaPct = baselineTokens !== undefined && candidateTokens !== undefined && baselineTokens > 0
     ? ((candidateTokens - baselineTokens) / baselineTokens) * 100
     : undefined
 
