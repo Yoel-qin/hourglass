@@ -7,6 +7,9 @@ name: PR Agent
 # 评论身份：优先用 the-pr-agent-bot GitHub App 的安装令牌（评论显示为
 # the-pr-agent-bot[bot]）；APP_ID/PRIVATE_KEY secrets 未配置时回退 workflow
 # 内置 GITHUB_TOKEN（评论显示为 github-actions[bot]），流水线不会中断。
+#
+# 私钥边界（PR #6 评审意见）：App 凭据只进自有 step 的 env，绝不放 job 级
+# env——第三方 action（the-pr-agent/pr-agent@main）不得接触 PRIVATE_KEY。
 
 on:
   pull_request_target:
@@ -23,18 +26,29 @@ jobs:
       issues: write
       pull-requests: write
     name: Run pr agent on every pull request, respond to user comments
-    env:
-      APP_ID: ${{ secrets.APP_ID }}
-      PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
     steps:
+      - name: Check GitHub App credentials
+        id: app_check
+        env:
+          APP_ID: ${{ secrets.APP_ID }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+        run: |
+          if [[ -n "$APP_ID" && -n "$PRIVATE_KEY" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Generate the-pr-agent-bot installation token
         id: app_token
-        # secrets 未配置时跳过，后续回退内置 GITHUB_TOKEN
-        if: ${{ env.APP_ID != '' }}
+        if: ${{ steps.app_check.outputs.configured == 'true' }}
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ env.APP_ID }}
-          private-key: ${{ env.PRIVATE_KEY }}
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+          # 最小权限：安装令牌只继承评审所需的三项，而非 App 全部权限
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
       - name: PR Agent action step
         id: pragent
         uses: the-pr-agent/pr-agent@main
