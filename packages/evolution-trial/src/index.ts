@@ -93,8 +93,9 @@ export type { TrialCommand, TrialRequest, TrialResponse, TrialCommandResult } fr
 export { exportValidationPack, loadPack, packPathFor, verifyValidationPack } from './validation-pack.ts'
 export type { ExportPackInput, ExportedPack } from './validation-pack.ts'
 export {
-  capViolation, ensureStreamUsageOption, errorDetail, extractUsageFromJson, extractUsageFromSse, parseRequestUrl, portOf, startLlmBroker,
+  capViolation, ensureStreamUsageOption, errorDetail, extractUsageFromJson, extractUsageFromMessagesJson,
+  extractUsageFromMessagesSse, extractUsageFromSse, parseRequestUrl, portOf, startLlmBroker,
 } from './llm-broker.ts'
 export type { LlmBroker, LlmBrokerConfig, UsageCaps, UsageCounts, UsageRecord, UsageReport } from './llm-broker.ts'
-export { startMockLlmServer } from './mock-llm-server.ts'
+export { pickArgumentProperty, startMockLlmServer } from './mock-llm-server.ts'
 export type { MockLlmConfig, MockLlmRequest, MockLlmServer, ScriptedResponse } from './mock-llm-server.ts'

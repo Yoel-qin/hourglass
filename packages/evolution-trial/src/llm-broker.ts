@@ -5,9 +5,11 @@
  * enters the child — this process strips any client credential, injects the
  * host-side key, meters usage from the API `usage` fields (reported numbers,
  * not estimates), and enforces fail-closed hard caps (calls / tokens /
- * wall-clock). Only OpenAI-compatible chat-completions traffic (plus a
- * read-only /models probe) is forwarded; everything else is refused without
- * touching the network. Token caps are as hard as the upstream's usage
+ * wall-clock). Only model traffic is forwarded — OpenAI-compatible
+ * chat-completions AND the Messages protocol the DSH DeepSeek adapter speaks
+ * (POST /v1/messages, Anthropic-style) — plus a read-only /models probe;
+ * everything else is refused without touching the network. Token caps are as
+ * hard as the upstream's usage
  * reporting: calls and wall-clock are enforced independently of it.
  *
  * @module @hourglass/evolution-trial
@@ -55,7 +57,7 @@ export interface UsageCounts {
 
 export interface UsageRecord {
   readonly at: string
-  readonly kind: 'chat-completions' | 'models-probe' | 'refused'
+  readonly kind: 'chat-completions' | 'messages' | 'models-probe' | 'refused'
   readonly status: number
   readonly model: string | undefined
   readonly promptTokens: number | undefined
@@ -99,6 +101,10 @@ export function extractUsageFromJson(bodyText: string): UsageCounts | undefined 
   } catch {
     return undefined
   }
+  return usageFromParsedJson(parsed)
+}
+
+function usageFromParsedJson(parsed: unknown): UsageCounts | undefined {
   if (parsed === null || typeof parsed !== 'object') return undefined
   const usage = (parsed as { usage?: unknown }).usage
   if (usage === null || typeof usage !== 'object') return undefined
@@ -108,6 +114,34 @@ export function extractUsageFromJson(bodyText: string): UsageCounts | undefined 
   const totalTokens = positiveNumber(u.total_tokens)
   if (promptTokens === undefined && completionTokens === undefined && totalTokens === undefined) return undefined
   return { promptTokens, completionTokens, totalTokens }
+}
+
+/**
+ * Usage from a Messages-protocol (Anthropic-style) JSON response:
+ * `{usage: {input_tokens, output_tokens}}`. Both snake_case fields and the
+ * OpenAI-style aliases are accepted.
+ */
+export function extractUsageFromMessagesJson(bodyText: string): UsageCounts | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(bodyText)
+  } catch {
+    return undefined
+  }
+  const direct = usageFromParsedJson(parsed)
+  if (direct !== undefined && (direct.promptTokens !== undefined || direct.completionTokens !== undefined)) return direct
+  if (parsed === null || typeof parsed !== 'object') return undefined
+  const usage = (parsed as { usage?: unknown }).usage
+  if (usage === null || typeof usage !== 'object') return undefined
+  const u = usage as Record<string, unknown>
+  const promptTokens = positiveNumber(u.input_tokens)
+  const completionTokens = positiveNumber(u.output_tokens)
+  if (promptTokens === undefined && completionTokens === undefined) return undefined
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens: promptTokens !== undefined && completionTokens !== undefined ? promptTokens + completionTokens : undefined,
+  }
 }
 
 /**
@@ -124,6 +158,37 @@ export function extractUsageFromSse(bodyText: string): UsageCounts | undefined {
     if (candidate !== undefined) found = candidate
   }
   return found
+}
+
+/**
+ * Usage from a Messages-protocol SSE stream: `message_start` carries
+ * `usage.input_tokens`, `message_delta` carries `usage.output_tokens`; the
+ * last observed value per field wins (both may also nest under `message`).
+ */
+export function extractUsageFromMessagesSse(bodyText: string): UsageCounts | undefined {
+  let promptTokens: number | undefined
+  let completionTokens: number | undefined
+  for (const line of bodyText.split('\n')) {
+    const match = /^data: (.+)$/.exec(line)
+    if (match === null || match[1] === '[DONE]') continue
+    let event: unknown
+    try {
+      event = JSON.parse(match[1])
+    } catch {
+      continue
+    }
+    if (event === null || typeof event !== 'object') continue
+    const record = event as { usage?: unknown; message?: { usage?: unknown } }
+    const usage = record.usage ?? record.message?.usage
+    if (usage === null || typeof usage !== 'object') continue
+    const u = usage as Record<string, unknown>
+    const input = positiveNumber(u.input_tokens)
+    const output = positiveNumber(u.output_tokens)
+    if (input !== undefined) promptTokens = input
+    if (output !== undefined) completionTokens = output
+  }
+  if (promptTokens === undefined && completionTokens === undefined) return undefined
+  return { promptTokens, completionTokens, totalTokens: promptTokens !== undefined && completionTokens !== undefined ? promptTokens + completionTokens : undefined }
 }
 
 /**
@@ -268,7 +333,7 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
     search: string,
     headers: Record<string, string>,
     body: Buffer | undefined,
-    kind: 'chat-completions' | 'models-probe',
+    kind: 'chat-completions' | 'messages' | 'models-probe',
     model: string | undefined,
     onDone: (upstreamStatus: number, usage: UsageCounts | undefined) => void,
   ): void => {
@@ -301,9 +366,12 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
         upstreamRes.on('end', () => {
           const contentType = String(upstreamRes.headers['content-type'] ?? '')
           const text = Buffer.concat(chunks).toString('utf8')
-          const usage = contentType.includes('text/event-stream')
-            ? extractUsageFromSse(text)
-            : extractUsageFromJson(text)
+          let usage: UsageCounts | undefined
+          if (contentType.includes('text/event-stream')) {
+            usage = kind === 'messages' ? extractUsageFromMessagesSse(text) : extractUsageFromSse(text)
+          } else {
+            usage = kind === 'messages' ? extractUsageFromMessagesJson(text) : extractUsageFromJson(text)
+          }
           onDone(statusCode, usage)
         })
       })
@@ -331,6 +399,9 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
     // untrusted child.
     const incoming = parseRequestUrl(`${request.url}`)
     const isChat = request.method === 'POST' && incoming !== undefined && /\/chat\/completions$/.test(incoming.pathname)
+    // The DSH DeepSeek adapter speaks the Messages protocol (Anthropic-style
+    // /v1/messages), not OpenAI chat-completions; the broker forwards both.
+    const isMessages = request.method === 'POST' && incoming !== undefined && /\/(v1\/)?messages$/.test(incoming.pathname)
     const isModels = request.method === 'GET' && incoming !== undefined && /\/models$/.test(incoming.pathname)
     const chunks: Buffer[] = []
     let bodyBytes = 0
@@ -343,7 +414,7 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
         refuse(response, 413, `request body exceeds ${maxBodyBytes} bytes`, undefined)
         return
       }
-      if (incoming === undefined || (!isChat && !isModels)) {
+      if (incoming === undefined || (!isChat && !isMessages && !isModels)) {
         refuse(response, 403, `path not allowed: ${request.method} ${incoming?.pathname ?? `${request.url}`}`, undefined)
         return
       }
@@ -369,7 +440,7 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
       }
       const body = parsed === null || typeof parsed !== 'object' ? undefined : parsed as { model?: unknown }
       if (body === undefined || typeof body.model !== 'string' || body.model === '') {
-        refuse(response, 400, 'chat-completions body must carry a string model', undefined)
+        refuse(response, 400, 'request body must carry a string model', undefined)
         return
       }
       const model = body.model
@@ -386,16 +457,18 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
       const headers = sanitizeHeaders(request.headers)
       headers['content-type'] = String(request.headers['content-type'] ?? 'application/json')
       applyCredential(headers, config)
-      const outbound = Buffer.from(ensureStreamUsageOption(rawBody), 'utf8')
+      // stream_options.include_usage is an OpenAI-completions field; Messages
+      // bodies pass through untouched.
+      const outbound = Buffer.from(isChat ? ensureStreamUsageOption(rawBody) : rawBody, 'utf8')
       calls += 1
-      forward(response, 'POST', incoming.pathname, incoming.search, headers, outbound, 'chat-completions', model, (status, usage) => {
+      forward(response, 'POST', incoming.pathname, incoming.search, headers, outbound, isChat ? 'chat-completions' : 'messages', model, (status, usage) => {
         if (usage === undefined) usageUnknownCalls += 1
         if (usage !== undefined) {
           if (usage.promptTokens !== undefined) promptTokens += usage.promptTokens
           if (usage.completionTokens !== undefined) completionTokens += usage.completionTokens
           if (usage.totalTokens !== undefined) totalTokens += usage.totalTokens
         }
-        record({ at: new Date().toISOString(), kind: 'chat-completions', status, model, promptTokens: usage?.promptTokens, completionTokens: usage?.completionTokens, totalTokens: usage?.totalTokens, reason: undefined })
+        record({ at: new Date().toISOString(), kind: isChat ? 'chat-completions' : 'messages', status, model, promptTokens: usage?.promptTokens, completionTokens: usage?.completionTokens, totalTokens: usage?.totalTokens, reason: undefined })
       })
     })
   })

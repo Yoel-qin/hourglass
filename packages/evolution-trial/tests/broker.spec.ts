@@ -9,13 +9,15 @@ import {
   ensureStreamUsageOption,
   errorDetail,
   extractUsageFromJson,
+  extractUsageFromMessagesJson,
+  extractUsageFromMessagesSse,
   extractUsageFromSse,
   parseRequestUrl,
   portOf,
   startLlmBroker,
   type LlmBroker,
 } from '../src/llm-broker.ts'
-import { startMockLlmServer, type MockLlmServer } from '../src/mock-llm-server.ts'
+import { buildToolArguments, pickArgumentProperty, startMockLlmServer, type MockLlmServer } from '../src/mock-llm-server.ts'
 
 interface FakeProxy {
   readonly port: number
@@ -565,5 +567,258 @@ describe('llm broker review fixes (PR #15 feedback)', () => {
     })
     expect(raw).toContain('403')
     expect(mock.requests).toHaveLength(0)
+  })
+})
+
+describe('mock llm scripted tool calls', () => {
+  const shellTool = { type: 'function', function: { name: 'shell', parameters: { type: 'object', properties: { command: { type: 'string' } } } } }
+
+  it('pickArgumentProperty prefers command, then strings, then anything', () => {
+    expect(pickArgumentProperty({ properties: { cmd: { type: 'string' }, command: { type: 'string' } } })).toBe('command')
+    expect(pickArgumentProperty({ properties: { count: { type: 'number' }, path: { type: 'string' } } })).toBe('path')
+    expect(pickArgumentProperty({ properties: { anything: { type: 'number' } } })).toBe('anything')
+    expect(pickArgumentProperty({ properties: {} })).toBe('input')
+    expect(pickArgumentProperty('not-a-schema')).toBe('input')
+    expect(pickArgumentProperty({ properties: 'nope' })).toBe('input')
+    expect(pickArgumentProperty({ properties: { a: 'string-not-object', b: { type: 'string' } } })).toBe('b')
+    expect(pickArgumentProperty({ properties: { a: 'string-not-object' } })).toBe('a')
+  })
+
+  it('answers a function call against the first requested tool (broker path, non-stream)', async () => {
+    const mock = await startMock({ scripted: [{ content: '', callFirstTool: { firstStringArg: 'echo carrier' }, promptTokens: 4, completionTokens: 6 }] })
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl })
+    const response = await fetch(`${broker.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'test-model', messages: [], tools: [shellTool] }),
+    })
+    expect(response.status).toBe(200)
+    const body = JSON.parse(await response.text())
+    expect(body.choices[0].finish_reason).toBe('tool_calls')
+    expect(body.choices[0].message.tool_calls[0].function.name).toBe('shell')
+    expect(JSON.parse(body.choices[0].message.tool_calls[0].function.arguments)).toEqual({ command: 'echo carrier' })
+    expect(mock.requests[0].nTools).toBe(1)
+    expect(mock.requests[0].toolNames).toEqual(['shell'])
+    expect(broker.report().totalTokens).toBe(10)
+  })
+
+  it('streams a function call chunk too', async () => {
+    const mock = await startMock({ scripted: [{ content: '', callFirstTool: { firstStringArg: 'x' } }] })
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl })
+    const result = await post(broker, '/chat/completions', { model: 'test-model', stream: true, messages: [], tools: [shellTool] })
+    expect(result.status).toBe(200)
+    expect(result.text).toContain('tool_calls')
+    expect(result.text).toContain('"name":"shell"')
+    expect(result.text).toContain('[DONE]')
+  })
+
+  it('answers 500 when callFirstTool is scripted but no tools were offered', async () => {
+    const mock = await startMock({ scripted: [{ content: '', callFirstTool: { firstStringArg: 'x' } }] })
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl })
+    const result = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
+    expect(result.status).toBe(500)
+    expect(result.text).toContain('carried no tools')
+  })
+})
+
+describe('mock llm Messages protocol and tool-argument building', () => {
+  it('buildToolArguments fills every required string property besides the argument one', () => {
+    const schema = { type: 'object', required: ['command', 'description'], properties: { command: { type: 'string' }, description: { type: 'string' }, timeoutMs: { type: 'number' } } }
+    expect(buildToolArguments(schema, 'command', 'ls')).toEqual({ command: 'ls', description: 'hourglass carrier description' })
+    expect(buildToolArguments(undefined, 'input', 'x')).toEqual({ input: 'x' })
+    expect(buildToolArguments({ properties: {} }, 'a', 'b')).toEqual({ a: 'b' })
+  })
+
+  it('serves Messages-protocol tool_use streams with an initial input object', async () => {
+    const mock = await startMock({ scripted: [{ content: '', callFirstTool: { firstStringArg: 'cat canary.txt' }, promptTokens: 5, completionTokens: 2 }] })
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl, modelAllowlist: ['deepseek-flash'] })
+    const response = await fetch(`${broker.baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'deepseek-flash',
+        stream: true,
+        messages: [],
+        tools: [{ name: 'bash', input_schema: { type: 'object', required: ['command', 'description'], properties: { command: { type: 'string' }, description: { type: 'string' } } } }],
+      }),
+    })
+    expect(response.status).toBe(200)
+    const text = await response.text()
+    expect(text).toContain('"type":"tool_use"')
+    expect(text).toContain('"input":{}')
+    expect(text).toContain('"stop_reason":"tool_use"')
+    expect(mock.requests[0].toolNames).toEqual(['bash'])
+    expect(JSON.stringify(mock.requests[0].firstToolParameters)).toContain('command')
+    const report = broker.report()
+    expect(report.calls).toBe(1)
+    expect(report.promptTokens).toBe(5)
+    expect(report.completionTokens).toBe(2)
+  })
+
+  it('selects the tool by scripted pattern when provided', async () => {
+    const mock = await startMock({ scripted: [{ content: '', callFirstTool: { firstStringArg: 'x', toolNamePattern: /^working_directory$/ } }] })
+    const response = await fetch(`${mock.baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'm', messages: [], tools: [
+        { type: 'function', function: { name: 'bash', parameters: { type: 'object', properties: { command: { type: 'string' } } } } },
+        { type: 'function', function: { name: 'working_directory', parameters: { type: 'object', properties: { path: { type: 'string' } } } } },
+      ] }),
+    })
+    expect(response.status).toBe(200)
+    const body = JSON.parse(await response.text())
+    expect(body.choices[0].message.tool_calls[0].function.name).toBe('working_directory')
+    expect(JSON.parse(body.choices[0].message.tool_calls[0].function.arguments)).toEqual({ path: 'x' })
+  })
+
+  it('answers 500 when a Messages tool call is scripted but no tool matches', async () => {
+    const mock = await startMock({ scripted: [{ content: '', callFirstTool: { firstStringArg: 'x' } }] })
+    const response = await fetch(`${mock.baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'm', messages: [] }),
+    })
+    expect(response.status).toBe(500)
+    expect(await response.text()).toContain('carried no tools')
+  })
+
+  it('buildToolArguments skips required properties that are not plain objects', () => {
+    const schema = { type: 'object', required: ['command', 'weird'], properties: { command: { type: 'string' }, weird: 'not-an-object' } }
+    expect(buildToolArguments(schema, 'command', 'go')).toEqual({ command: 'go' })
+  })
+
+  it('serves Messages streams and bodies with no usage at all', async () => {
+    const mock = await startMock({ scripted: [{ content: 'bare' }, { content: 'bare2' }] })
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl, modelAllowlist: ['deepseek-flash'] })
+    const streamed = await fetch(`${broker.baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'deepseek-flash', stream: true, messages: [] }),
+    })
+    expect(streamed.status).toBe(200)
+    const streamedText = await streamed.text()
+    expect(streamedText).not.toContain('input_tokens')
+    expect(streamedText).not.toContain('output_tokens')
+    const plain = await fetch(`${broker.baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'deepseek-flash', messages: [] }),
+    })
+    expect(plain.status).toBe(200)
+    const body = JSON.parse(await plain.text())
+    expect(body.usage).toBeUndefined()
+    expect(broker.report()).toMatchObject({ calls: 2, usageUnknownCalls: 2, totalTokens: 0 })
+  })
+
+  it('fills absent single-side usage with zeros and tolerates non-object tools entries', async () => {
+    const mock = await startMock({ scripted: [{ content: 'half', promptTokens: 4 }] })
+    const response = await fetch(`${mock.baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'm', messages: [], tools: ['garbage-entry', null] }),
+    })
+    expect(response.status).toBe(200)
+    const body = JSON.parse(await response.text())
+    expect(body.usage).toEqual({ input_tokens: 4, output_tokens: 0 })
+    expect(mock.requests[0].nTools).toBe(2)
+    expect(mock.requests[0].toolNames).toEqual(['(unnamed)', '(unnamed)'])
+  })
+
+  it('covers completion-only usage and malformed tool shapes', async () => {
+    const mock = await startMock({ scripted: [{ content: 'c', completionTokens: 3 }] })
+    const response = await fetch(`${mock.baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'm', messages: [], tools: [
+        { function: { parameters: {} } },
+        { foo: 1 },
+      ] }),
+    })
+    expect(response.status).toBe(200)
+    const body = JSON.parse(await response.text())
+    expect(body.usage).toEqual({ input_tokens: 0, output_tokens: 3 })
+    expect(mock.requests[0].toolNames).toEqual(['(unnamed)', '(unnamed)'])
+    expect(mock.requests[0].nTools).toBe(2)
+  })
+
+  it('resetScript restarts the served sequence without lifetime counting', async () => {
+    const mock = await startMock({ scripted: [{ content: 'only' }] })
+    await fetch(`${mock.baseUrl}/v1/chat/completions`, { method: 'POST', body: JSON.stringify({ model: 'm', messages: [] }) })
+    mock.resetScript([{ content: 'fresh' }])
+    const second = await fetch(`${mock.baseUrl}/v1/chat/completions`, { method: 'POST', body: JSON.stringify({ model: 'm', messages: [] }) })
+    expect(second.status).toBe(200)
+    expect(await second.text()).toContain('fresh')
+  })
+
+  it('Messages non-stream tool_use answers a JSON object body', async () => {
+    const mock = await startMock({ scripted: [{ content: '', callFirstTool: { firstStringArg: 'x' }, promptTokens: 1, completionTokens: 1 }] })
+    const response = await fetch(`${mock.baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'm', messages: [], tools: [{ name: 'bash', input_schema: { type: 'object', properties: { command: { type: 'string' } } } }] }),
+    })
+    expect(response.status).toBe(200)
+    const body = JSON.parse(await response.text())
+    expect(body.content[0].type).toBe('tool_use')
+    expect(body.stop_reason).toBe('tool_use')
+    expect(body.usage).toEqual({ input_tokens: 1, output_tokens: 1 })
+  })
+})
+
+describe('Messages-protocol usage extraction', () => {
+  it('extractUsageFromMessagesJson reads snake_case fields and sums them', () => {
+    expect(extractUsageFromMessagesJson('{"usage":{"input_tokens":3,"output_tokens":4}}'))
+      .toEqual({ promptTokens: 3, completionTokens: 4, totalTokens: 7 })
+    expect(extractUsageFromMessagesSse('data: {"type":"message_start","message":{"usage":{"input_tokens":5}}}')).toEqual({ promptTokens: 5, completionTokens: undefined, totalTokens: undefined })
+    expect(extractUsageFromMessagesJson('{"usage":{"input_tokens":5}}'))
+      .toEqual({ promptTokens: 5, completionTokens: undefined, totalTokens: undefined })
+    expect(extractUsageFromMessagesJson('{"usage":{"output_tokens":2}}'))
+      .toEqual({ promptTokens: undefined, completionTokens: 2, totalTokens: undefined })
+    expect(extractUsageFromMessagesJson('{"usage":{"prompt_tokens":9,"total_tokens":11}}'))
+      .toEqual({ promptTokens: 9, completionTokens: undefined, totalTokens: 11 })
+    expect(extractUsageFromMessagesJson('not json')).toBeUndefined()
+    expect(extractUsageFromMessagesJson('42')).toBeUndefined()
+    expect(extractUsageFromMessagesJson('{"usage":{"total_tokens":9}}')).toBeUndefined()
+    expect(extractUsageFromMessagesJson('{"choices":[]}')).toBeUndefined()
+    expect(extractUsageFromMessagesJson('{"usage":{}}')).toBeUndefined()
+  })
+
+  it('extractUsageFromMessagesSse merges message_start and message_delta usage', () => {
+    const sse = [
+      'data: {"type":"message_start","message":{"usage":{"input_tokens":7}}}',
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":8}}',
+      'data: {"type":"message_stop"}',
+    ].join('\n')
+    expect(extractUsageFromMessagesSse(sse)).toEqual({ promptTokens: 7, completionTokens: 8, totalTokens: 15 })
+    expect(extractUsageFromMessagesSse('data: {"type":"message_stop"}')).toBeUndefined()
+    expect(extractUsageFromMessagesSse('data: not-json')).toBeUndefined()
+    expect(extractUsageFromMessagesSse('data: 42')).toBeUndefined()
+  })
+
+  it('meters a Messages-protocol NON-stream response through the broker', async () => {
+    const mock = await startMock({ scripted: [{ content: 'plain-messages', promptTokens: 6, completionTokens: 2 }] })
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl, modelAllowlist: ['deepseek-flash'] })
+    const response = await fetch(`${broker.baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'deepseek-flash', messages: [] }),
+    })
+    expect(response.status).toBe(200)
+    expect(broker.report()).toMatchObject({ calls: 1, promptTokens: 6, completionTokens: 2, totalTokens: 8, usageUnknownCalls: 0 })
+  })
+
+  it('meters a Messages-protocol stream through the broker end to end', async () => {
+    const mock = await startMock({ scripted: [{ content: 'messages-body', promptTokens: 11, completionTokens: 6 }] })
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl, modelAllowlist: ['deepseek-flash'] })
+    const response = await fetch(`${broker.baseUrl}/v1/messages`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'deepseek-flash', stream: true, messages: [] }),
+    })
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain('messages-body')
+    expect(broker.report()).toMatchObject({ calls: 1, promptTokens: 11, completionTokens: 6, totalTokens: 17, usageUnknownCalls: 0 })
+    expect(broker.report().records[0]).toMatchObject({ kind: 'messages', status: 200, model: 'deepseek-flash' })
   })
 })
