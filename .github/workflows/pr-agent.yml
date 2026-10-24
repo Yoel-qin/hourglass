@@ -3,6 +3,10 @@ name: PR Agent
 # PR-Agent 以 GitHub Action 方式运行：PR 打开/更新时自动 describe/review/improve，
 # 在 PR 评论里输入 /review /describe /improve /ask "..." 等命令可手动触发。
 # 用法文档: https://docs.pr-agent.ai/installation/github/
+#
+# 评论身份：优先用 the-pr-agent-bot GitHub App 的安装令牌（评论显示为
+# the-pr-agent-bot[bot]）；APP_ID/PRIVATE_KEY secrets 未配置时回退 workflow
+# 内置 GITHUB_TOKEN（评论显示为 github-actions[bot]），流水线不会中断。
 
 on:
   pull_request_target:
@@ -19,7 +23,18 @@ jobs:
       issues: write
       pull-requests: write
     name: Run pr agent on every pull request, respond to user comments
+    env:
+      APP_ID: ${{ secrets.APP_ID }}
+      PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
     steps:
+      - name: Generate the-pr-agent-bot installation token
+        id: app_token
+        # secrets 未配置时跳过，后续回退内置 GITHUB_TOKEN
+        if: ${{ env.APP_ID != '' }}
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ env.APP_ID }}
+          private-key: ${{ env.PRIVATE_KEY }}
       - name: PR Agent action step
         id: pragent
         uses: the-pr-agent/pr-agent@main
@@ -27,7 +42,8 @@ jobs:
           # DeepSeek（OpenAI 兼容端点）：key 放在仓库 secret OPENAI_KEY 里
           # 获取：platform.deepseek.com → API Keys → 创建/复制
           OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # the-pr-agent-bot 安装令牌；未配置 App 时回退内置 token
+          GITHUB_TOKEN: ${{ steps.app_token.outputs.token || github.token }}
           OPENAI__API_BASE: https://api.deepseek.com
           # 模型 id 以 DeepSeek 报错信息/控制台为准：deepseek-flash（即 V4.1 Flash）、deepseek-v4-pro
           CONFIG__MODEL: openai/deepseek-flash
