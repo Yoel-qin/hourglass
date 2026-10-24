@@ -83,6 +83,9 @@ jobs:
           # "由于令牌预算或最大块调用次数限制，未分析"。调大预算让全部块
           # 得到分析；代价是 DeepSeek token 费用与评审时长线性增加。
           CONFIG__MAX_BUDGET: '30'
+          # 块调用上限在部分 pr-agent 版本中位于 pr_reviewer.max_calls；
+          # 同时设置两个键，避免顶层键不被识别时预算提升静默失效
+          CONFIG__PR_REVIEWER__MAX_CALLS: '30'
           GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: 'true'
           GITHUB_ACTION_CONFIG__AUTO_REVIEW: 'true'
           GITHUB_ACTION_CONFIG__AUTO_IMPROVE: 'true'
