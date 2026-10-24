@@ -91,6 +91,15 @@ do_evolution_smoke() {
   return "$nochange_status"
 }
 
+do_agent_carrier_smoke() {
+  log "running agent-lane carrier probe (P1-P4 evidence, mock LLM only)"
+  set +e
+  node --experimental-strip-types "$DSH/packages/hourglass/evolution-runner/agent-lane/carrier-probe.ts"     --out="$REPORTS/runs/agent-carrier-latest" 2>&1 | tee "$REPORTS/runs/agent-carrier-latest.txt"
+  local status=${PIPESTATUS[0]}
+  set -e
+  return "$status"
+}
+
 do_evolution_coverage() {
   log "running evolution per-file 100% coverage gate (evolution packages only)"
   local previous_pwd=$PWD
@@ -132,7 +141,8 @@ case "${1:-bash}" in
   evolution-smoke)    do_evolution_smoke ;;
   evolution-coverage) do_evolution_coverage ;;
   evolution-nightly)  do_evolution_nightly ;;
-  run-all)      do_gates; do_unit; do_evolution_smoke; do_evolution_coverage; do_compare; do_perf; do_rob04 ;;
+  agent-carrier-smoke) do_agent_carrier_smoke ;;
+  run-all)      do_gates; do_unit; do_evolution_smoke; do_evolution_coverage; do_agent_carrier_smoke; do_compare; do_perf; do_rob04 ;;
   bash)         exec bash ;;
   *)            exec "$@" ;;
 esac

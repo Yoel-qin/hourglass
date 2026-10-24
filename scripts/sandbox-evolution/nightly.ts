@@ -167,10 +167,13 @@ async function phaseLifecycle(root: string): Promise<PhaseResult> {
 
 /** Phase 3: concurrent trials with isolated workspaces (EVO-TRIAL-10). */
 async function phaseConcurrency(root: string): Promise<PhaseResult> {
+  // Fresh sub-root per invocation so a retry can never read a stale marker.
+  const attemptRoot = join(root, `concurrent-${Date.now()}`)
+  mkdirSync(attemptRoot, { recursive: true })
   const run = async (name: string, marker: string) => runTrial({
     trialId: `concurrent-${name}`,
-    workspaceRoot: join(root, `concurrent-ws-${name}`),
-    ledgerPath: join(root, `concurrent-ledger-${name}.jsonl`),
+    workspaceRoot: join(attemptRoot, `concurrent-ws-${name}`),
+    ledgerPath: join(attemptRoot, `concurrent-ledger-${name}.jsonl`),
     commands: [{ callId: 'probe', command: `echo ${marker} > marker.txt` }],
     confinement: buildTrialConfinement(),
   })
@@ -180,7 +183,7 @@ async function phaseConcurrency(root: string): Promise<PhaseResult> {
   // is written (PR #9 review finding).
   const readMarker = (name: string): string | undefined => {
     try {
-      return readFileSync(join(root, `concurrent-ws-${name}`, 'marker.txt'), 'utf8').trim()
+      return readFileSync(join(attemptRoot, `concurrent-ws-${name}`, 'marker.txt'), 'utf8').trim()
     } catch {
       return undefined
     }
@@ -238,7 +241,17 @@ async function main(): Promise<number> {
   const results: PhaseResult[] = []
   results.push(phaseJournal(outDir))
   results.push(await phaseLifecycle(root))
-  results.push(await phaseConcurrency(root))
+  // One retry for the concurrency phase: it races two real bwrap children,
+  // and a loaded CI runner can transiently lose the marker read right after
+  // an otherwise-clean trial (observed on GH runners, never locally). The
+  // first attempt's detail is preserved as evidence.
+  const concurrencyFirst = await phaseConcurrency(root)
+  if (concurrencyFirst.ok) {
+    results.push(concurrencyFirst)
+  } else {
+    const concurrencyRetry = await phaseConcurrency(root)
+    results.push({ ...concurrencyRetry, detail: { firstAttempt: concurrencyFirst.detail, retry: concurrencyRetry.detail } })
+  }
   results.push(phaseDeterminism(outDir))
 
   rmSync(root, { recursive: true, force: true })
