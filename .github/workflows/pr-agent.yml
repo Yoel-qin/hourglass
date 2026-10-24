@@ -48,6 +48,9 @@ jobs:
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.PRIVATE_KEY }}
+          # 令牌限定到当前仓库（而非 App 安装的全部仓库）
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
           # 最小权限：安装令牌只继承评审所需的三项，而非 App 全部权限
           permission-contents: read
           permission-issues: write
