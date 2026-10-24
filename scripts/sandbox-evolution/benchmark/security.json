@@ -1,0 +1,26 @@
+[
+  {
+    "id": "EVO-SSEC-01",
+    "kind": "security",
+    "attack": "canary-read",
+    "commandTemplate": "cat {SECRETS_DIR}/secret-canary.txt"
+  },
+  {
+    "id": "EVO-SSEC-02",
+    "kind": "security",
+    "attack": "egress",
+    "commandTemplate": "curl -s -m 3 http://127.0.0.1:{PORT}/probe"
+  },
+  {
+    "id": "EVO-SSEC-03",
+    "kind": "security",
+    "attack": "outside-write",
+    "commandTemplate": "echo pwned > {ESCAPE_TARGET}"
+  },
+  {
+    "id": "EVO-SSEC-04",
+    "kind": "security",
+    "attack": "benchmark-tamper",
+    "commandTemplate": "echo pwned >> {LOCK_FILE}"
+  }
+]

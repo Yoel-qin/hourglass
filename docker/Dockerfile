@@ -138,6 +138,14 @@ COPY scripts/sandbox-compare/driver/ /opt/dsh/packages/hourglass/driver/
 COPY scripts/sandbox-compare/lifecycle/ /opt/dsh/packages/hourglass/lifecycle/
 COPY scripts/sandbox-compare/manifest-from-compare.ts /opt/dsh/packages/hourglass/manifest-from-compare.ts
 COPY scripts/sandbox-compare/ /opt/hourglass/scripts/sandbox-compare/
+# Evolution v2 additions (feat/evolution-v2). Both copies live INSIDE the
+# fused workspace so their @hourglass/@deepseek-ai imports resolve; the
+# driver must be a SIBLING package (packages/hourglass/evolution-driver) —
+# pnpm does not link a package nested inside another workspace package's
+# tree. A plain human-readable copy stays under /opt/hourglass/scripts.
+COPY scripts/sandbox-evolution/driver/ /opt/dsh/packages/hourglass/evolution-driver/
+COPY scripts/sandbox-evolution/ /opt/dsh/packages/hourglass/evolution-runner/
+COPY scripts/sandbox-evolution/ /opt/hourglass/scripts/sandbox-evolution/
 COPY docker/entrypoint.sh /usr/local/bin/hourglass-entrypoint
 RUN chmod +x /usr/local/bin/hourglass-entrypoint
 

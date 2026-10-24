@@ -23,6 +23,60 @@ DSH（DeepSeek Harness）沙箱治理插件 + 可复现开源沙箱对比测试�
 | **@hourglass/sandbox-capabilities** | 能力清单 | 五能力 × 五后端矩阵；`enforced` 只能由 probe/test-result 证据支撑；查询命令 `/sandbox-capabilities` |
 | **@hourglass/policy-ci** | 策略回归 | 合成 fixture + 纯函数语义模型 → 决策回放与 diff；CI 零网络/零模型；golden 字节稳定 |
 
+## 自进化安全试炼场（evolution v2，`feat/evolution-v2` 分支增量）
+
+在六包治理底座之上按
+[《自进化安全试炼场方案 v3.1》](DeepSeek-Harness-自进化安全试炼场-增量开发测试方案-v3.1.md)
+增量开发：候选（仅 DSH `SKILL.md` 与受控提示词片段）必须先封存进不可变
+内容寻址库，经一次性独立子进程试炼（插件装载在子进程内、命令过
+net→read→rsrc→bwrap confine 链），按冻结基准与锁定阈值四态判定
+（`pass/reject/inconclusive/blocked`），唯一晋级路径是导出 hash 绑定
+验证包 + 人工批准 + 人工应用。自动晋级与生产 Shadow 默认移出 MVP。
+决策记录见 [ADR-003](docs/ADR-003-evolution-scope.md)，基线实测见
+[docs/evolution/E0-baseline-20261019.md](docs/evolution/E0-baseline-20261019.md)。
+
+| 增量 | 职责 |
+|---|---|
+| **@hourglass/evolution-contract** | 纯函数契约：候选 schema 校验（未知字段/资产/风险层级/能力扩张拒绝）、生命周期状态机（不可跳过人工批准）、冻结基准 manifest + hash 锁、四态判定器（安全硬门禁优先、零跳过、95% CI 严格改进）、晋级策略与 decision digest；16 场景 golden 字节冻结 |
+| **@hourglass/evolution-trial** | 试炼运行时：不可变候选库（封存 `wx` + 内容寻址 + 幂等去重 + 防 TOCTOU 复验）、hash-chain 演化 journal（篡改/删行可检出）、一次性 trial-driver 启动器（独立子进程 + 看门狗，无进程内回退）、验证包导出（仅 `pass` 可导出、审批前校验失败）、`sandbox-evolution` 只读查询命令 |
+| `scripts/sandbox-evolution/driver/` | trial-driver 子进程：挂载 audit(strict)/net/read/rsrc，唯一工具 `trial_exec` 恒为 workspace-write；**不注册任何宿主出口工具**（NET-13 教训：`web_fetch` 等 harness 侧工具是独立出口，唯一可靠手段是物理不存在） |
+
+已交付里程碑（容器内实测）：E0（ADR-003 + 12 条 DSH 源码核验 + 覆盖率
+门禁启用）、E1（契约包 + 16 场景 golden）、E2（trial 子进程隔离：独立
+PID、deny-read canary 零泄漏（含 symlink 别名）、egress 服务端零记录、
+fsize 内核截停）、E3（端到端守门流水线：lock gate → 封存 → 配对试炼 →
+四态判定 → 验证包；改进候选 `pass`、无改进候选 `reject`，环境/能力门禁
+均为实测输入）、E4（entrypoint 接线 + **evolution 两包 per-file 100%
+覆盖门禁**，v3.1 §11.2 的 E0.6 承诺兑现）、E5（`evolution-nightly` 长循环
+演练：journal 千次追加+篡改检出、50 次试炼生命周期零泄漏（fd 漂移 1/上限
+10）、并发隔离、判定确定性 3×；操作员 runbook 与最终验收报告——v3.1 §17
+十八项逐项对照 16✅ 2⚪）。单测 207 全绿；存量六包与
+compare 框架零改动（versions-lock sha256 不变）。`dsh-auto-evolve`
+对照 lane 证据化 not-run（理由见
+[docs/evolution/E0-baseline-20261019.md](docs/evolution/E0-baseline-20261019.md)）。
+
+容器内分项命令（均并入 `run-all`）：
+
+```bash
+# evolution 守门流水线（改进候选必须 pass；--candidate=nochange 为阴性对照）
+docker run --rm --privileged -v "$(pwd -W)/reports:/opt/reports" \
+  hourglass-test hourglass-entrypoint evolution-smoke
+
+# evolution 两包 per-file 100% 覆盖门禁
+docker run --rm --privileged -v "$(pwd -W)/reports:/opt/reports" \
+  hourglass-test hourglass-entrypoint evolution-coverage
+
+# 长循环演练：journal 千次追加+篡改检出、50 次试炼生命周期（fd/RSS 漂移
+# 监测）、并发双试炼隔离、判定确定性复跑（-e EVOLUTION_NIGHTLY_CYCLES 等
+# 可调；CI 跑缩减版）
+docker run --rm --privileged -v "$(pwd -W)/reports:/opt/reports" \
+  hourglass-test hourglass-entrypoint evolution-nightly
+```
+
+操作员手册（判定处置 / 验证包审查与手工应用 / 回退 / 冲突 / 故障速查）：
+[docs/evolution/runbook.md](docs/evolution/runbook.md)；最终验收报告：
+[docs/evolution/final-report.md](docs/evolution/final-report.md)。
+
 ## 安装
 
 前置条件：Docker（本机验证版本 29.7.2，Docker Desktop on WSL2）。
@@ -79,18 +133,24 @@ DSH（pinned commit，完整构建）+ hourglass 六包（fuse 进 DSH workspace
 ## 使用
 
 ```bash
-# 一键全套：版本锁 gate → 单测（94 个，含 REAL-composition）→ smoke-p1 对比 → PERF → ROB-04 千次循环
+# 一键全套：版本锁 gate → 单测（207 个，含 REAL-composition 与 evolution
+# 集成测试）→ evolution-smoke（守门流水线双向）→ evolution-coverage
+# （per-file 100%）→ smoke-p1 对比 → PERF → ROB-04 千次循环
 docker run --rm --privileged -v "$(pwd)/reports:/opt/reports" \
   hourglass-test /usr/local/bin/hourglass-entrypoint run-all
 
 # 分项命令
-#   gates         版本锁校验（输出 sha256，报告必须引用）
-#   unit          六包单测
-#   compare       smoke-p1 对比矩阵（9 case × 4 subject 快速门）
-#   compare-all   全量矩阵：43 case × 5 subject（DSH-BASE/DSH-PLUGIN/SRT/NSJAIL/WASMER）
-#   compare-cube  CUBE lane（KVM 环境探测 → 43 条证据化 not-run 记录）
-#   perf          PERF 基线（6 对象 × 30 次采样）
-#   rob04         生命周期循环（fd/RSS/临时目录）
+#   gates               版本锁校验（输出 sha256，报告必须引用）
+#   unit                全部单测（六包 + evolution 两包，含集成测试）
+#   compare             smoke-p1 对比矩阵（9 case × 4 subject 快速门）
+#   compare-all         全量矩阵：43 case × 5 subject（DSH-BASE/DSH-PLUGIN/SRT/NSJAIL/WASMER）
+#   compare-cube        CUBE lane（KVM 环境探测 → 43 条证据化 not-run 记录）
+#   perf                PERF 基线（6 对象 × 30 次采样）
+#   rob04               生命周期循环（fd/RSS/临时目录）
+#   evolution-smoke     自进化守门流水线（改进候选必须 pass + 无改进必须 reject）
+#   evolution-coverage  evolution 两包 per-file 100% 覆盖门禁
+#   evolution-nightly   长循环演练（journal 压力 + 试炼生命周期 + 并发 + 确定性；
+#                        -e EVOLUTION_NIGHTLY_CYCLES 等可调，CI 跑缩减版）
 docker run --rm --privileged -v "$(pwd)/reports:/opt/reports" \
   hourglass-test /usr/local/bin/hourglass-entrypoint <command>
 
@@ -351,15 +411,38 @@ packages/policy-ci/        @hourglass/policy-ci（+ golden fixtures）
 packages/net/              @hourglass/sandbox-net
 packages/read/             @hourglass/sandbox-read
 packages/rsrc/             @hourglass/sandbox-rsrc
+packages/evolution-contract/   @hourglass/evolution-contract（evolution v2）
+packages/evolution-trial/      @hourglass/evolution-trial（evolution v2）
 scripts/sandbox-compare/   对比测试（43 case、versions.lock、WASI 固件源码）
+scripts/sandbox-evolution/ 自进化试炼 driver 与编排（evolution v2）
 docker/                    三阶段 Dockerfile + compose + entrypoint + vendor/
 docs/                      ADR-001/002、learning-guide、competitive-analysis、assets/（图表）
 reports/                   final-report.md + runs/（原始 JSON 数据）
 ```
 
+## Testing hooks
+
+各包的纯函数注入点（无需真实沙箱即可全覆盖，容器内 `hourglass-entrypoint unit` 统一执行）：
+
+- audit：`classifyOutcome` / `extractSandboxFacts` / `summarizeArguments` / `verifyAuditChain`
+- capabilities：`buildManifest`（纯函数可直调）
+- policy-ci：`decide` / `replay` / `replayDiff`（golden 字节稳定，`pnpm golden:policy-ci` 重生成）
+- net/read/rsrc：confine argv 重写函数与判定纯函数
+- evolution-contract：`validateCandidateManifest` / `transition` / `validateBenchmarkManifest` /
+  `evaluate` / `canExportValidationPack` / `verifyValidationPack` / `decisionDigest`
+- evolution-trial：`CandidateStore`（临时目录即可）/ `EvolutionJournal.verify` /
+  `exportValidationPack` / `runTrial`（集成测试需容器 bwrap lane，证据取子进程侧与服务端 canary）
+
 ## 开发
 
-- 单测：容器内 `hourglass-entrypoint unit`（94/94 绿）；纯函数注入点
-  （classify/decide/confine 重写函数等）无需真实沙箱即可全覆盖。
+- 单测：容器内 `hourglass-entrypoint unit`（22 文件 / 207 测试全绿，含
+  REAL-composition、launcher 集成与 operator-surface 真实 CommandRuntime
+  测试）；纯函数注入点（classify/decide/confine/evaluator 等）无需真实
+  沙箱即可全覆盖。
+- 覆盖率：`hourglass-entrypoint evolution-coverage`——evolution 两包
+  per-file 100%（statements/branches/functions/lines 全维度）；六包既有
+  代码保持现状（独立技术债决策，见 E0 基线）。
+- 长循环：`hourglass-entrypoint evolution-nightly`（journal 压力 + 试炼
+  生命周期 + 并发隔离 + 判定确定性；env 参数强校验 fail-fast）。
 - 竞品分析再生产：三仓库本地 clone（sandbox-runtime/wasmer/CubeSandbox）
   的调研方法与证据索引见 docs/competitive-analysis.md §8。
