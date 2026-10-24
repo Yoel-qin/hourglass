@@ -77,3 +77,13 @@ jobs:
           docker run --rm --privileged hourglass-test
           node --experimental-strip-types /opt/dsh/packages/hourglass/evolution-runner/run.ts
           --out=/tmp/evo-nochange --candidate=nochange --expect=reject
+
+      - name: Evolution nightly drill (reduced cycles for CI)
+        run: >-
+          docker run --rm --privileged
+          -e EVOLUTION_NIGHTLY_CYCLES=5
+          -e EVOLUTION_JOURNAL_APPENDS=100
+          -e EVOLUTION_DETERMINISM_RUNS=1
+          hourglass-test
+          node --experimental-strip-types /opt/dsh/packages/hourglass/evolution-runner/nightly.ts
+          --out=/tmp/evo-nightly

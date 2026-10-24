@@ -108,6 +108,19 @@ do_evolution_coverage() {
   return "$status"
 }
 
+do_evolution_nightly() {
+  log "running evolution nightly drill (cycles=${EVOLUTION_NIGHTLY_CYCLES:-50}, journal appends=${EVOLUTION_JOURNAL_APPENDS:-1000}, determinism=${EVOLUTION_DETERMINISM_RUNS:-3})"
+  local previous_pwd=$PWD
+  local out
+  out="$REPORTS/runs/evolution-nightly-$(date -u +%Y%m%dT%H%M%SZ)"
+  set +e
+  node --experimental-strip-types "$DSH/packages/hourglass/evolution-runner/nightly.ts" --out="$out" 2>&1 | tee "$REPORTS/runs/evolution-nightly-latest.txt"
+  local status=${PIPESTATUS[0]}
+  set -e
+  cd "$previous_pwd"
+  return "$status"
+}
+
 case "${1:-bash}" in
   gates)        do_gates ;;
   unit)         do_unit ;;
@@ -118,6 +131,7 @@ case "${1:-bash}" in
   rob04)        do_rob04 ;;
   evolution-smoke)    do_evolution_smoke ;;
   evolution-coverage) do_evolution_coverage ;;
+  evolution-nightly)  do_evolution_nightly ;;
   run-all)      do_gates; do_unit; do_evolution_smoke; do_evolution_coverage; do_compare; do_perf; do_rob04 ;;
   bash)         exec bash ;;
   *)            exec "$@" ;;

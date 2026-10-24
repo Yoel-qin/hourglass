@@ -62,7 +62,17 @@ docker run --rm --privileged -v "$(pwd -W)/reports:/opt/reports" \
 # evolution 两包 per-file 100% 覆盖门禁
 docker run --rm --privileged -v "$(pwd -W)/reports:/opt/reports" \
   hourglass-test hourglass-entrypoint evolution-coverage
+
+# 长循环演练：journal 千次追加+篡改检出、50 次试炼生命周期（fd/RSS 漂移
+# 监测）、并发双试炼隔离、判定确定性复跑（-e EVOLUTION_NIGHTLY_CYCLES 等
+# 可调；CI 跑缩减版）
+docker run --rm --privileged -v "$(pwd -W)/reports:/opt/reports" \
+  hourglass-test hourglass-entrypoint evolution-nightly
 ```
+
+操作员手册（判定处置 / 验证包审查与手工应用 / 回退 / 冲突 / 故障速查）：
+[docs/evolution/runbook.md](docs/evolution/runbook.md)；最终验收报告：
+[docs/evolution/final-report.md](docs/evolution/final-report.md)。
 
 ## 安装
 
