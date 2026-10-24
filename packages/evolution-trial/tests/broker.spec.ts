@@ -34,7 +34,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-async function startFakeProxy(mode: 'ok' | 'refuse' | 'pad'): Promise<FakeProxy> {
+async function startFakeProxy(mode: 'ok' | 'refuse' | 'pad' | 'split' | 'stall' | 'flood'): Promise<FakeProxy> {
   const tunneled: string[] = []
   const server: TcpServer = createTcpServer((socket: Socket) => {
     socket.once('data', (chunk: Buffer) => {
@@ -46,7 +46,22 @@ async function startFakeProxy(mode: 'ok' | 'refuse' | 'pad'): Promise<FakeProxy>
         socket.end()
         return
       }
-      socket.write(mode === 'pad' ? 'HTTP/1.1 200 Connection Established\r\n\r\n\r\n' : 'HTTP/1.1 200 Connection Established\r\n\r\n')
+      if (mode === 'stall') return // accept the CONNECT, never answer
+      if (mode === 'flood') {
+        // A 200 status line followed by >16KiB of header bytes with no blank
+        // line: the head-cap guard must fail the tunnel instead of buffering
+        // forever.
+        socket.write(`HTTP/1.1 200 OK
+-x: ${'A'.repeat(20_000)}`)
+        return
+      }
+      if (mode === 'split') {
+        // Reply head split across two TCP writes: exercises the buffering.
+        socket.write('HTTP/1.1 200 Connection Established\r')
+        setTimeout(() => socket.write('\n\r\n'), 30)
+      } else {
+        socket.write(mode === 'pad' ? 'HTTP/1.1 200 Connection Established\r\n\r\n\r\n' : 'HTTP/1.1 200 Connection Established\r\n\r\n')
+      }
       const upstream = netConnect({ host: target[1], port: Number(target[2]) })
       upstream.pipe(socket)
       socket.pipe(upstream)
@@ -820,5 +835,51 @@ describe('Messages-protocol usage extraction', () => {
     expect(await response.text()).toContain('messages-body')
     expect(broker.report()).toMatchObject({ calls: 1, promptTokens: 11, completionTokens: 6, totalTokens: 17, usageUnknownCalls: 0 })
     expect(broker.report().records[0]).toMatchObject({ kind: 'messages', status: 200, model: 'deepseek-flash' })
+  })
+})
+
+describe('llm broker transport hardening (PR #15 persistent review)', () => {
+  it('sends a truthful Host header through the CONNECT tunnel', async () => {
+    const mock = await startMock({ scripted: [{ content: 'host-ok' }] })
+    const proxy = await startFakeProxy('ok')
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl, proxyUrl: `http://127.0.0.1:${proxy.port}` })
+    const result = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
+    expect(result.status).toBe(200)
+    expect(mock.requests[0].host).toBe(`127.0.0.1:${mock.port}`)
+  })
+
+  it('buffers a CONNECT reply that spans two TCP segments', async () => {
+    const mock = await startMock({ scripted: [{ content: 'split-ok' }] })
+    const proxy = await startFakeProxy('split')
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl, proxyUrl: `http://127.0.0.1:${proxy.port}` })
+    const result = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
+    expect(result.status).toBe(200)
+    expect(JSON.parse(result.text).choices[0].message.content).toBe('split-ok')
+  })
+
+  it('fails a proxy reply whose head exceeds the cap without a blank line', async () => {
+    const mock = await startMock({ scripted: [{ content: 'never' }] })
+    const proxy = await startFakeProxy('flood')
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl, proxyUrl: `http://127.0.0.1:${proxy.port}` })
+    const result = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
+    expect(result.status).toBe(502)
+    expect(result.text).toContain('exceeded 16KiB')
+  })
+
+  it('times out a proxy that accepts the connection but never answers CONNECT', async () => {
+    const mock = await startMock({ scripted: [{ content: 'never' }] })
+    const proxy = await startFakeProxy('stall')
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl, proxyUrl: `http://127.0.0.1:${proxy.port}`, upstreamTimeoutMs: 300 })
+    const result = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
+    expect(result.status).toBe(502)
+    expect(result.text).toContain('connect phase timed out')
+    expect(mock.requests).toHaveLength(0)
+  })
+
+  it('times out a silent raw upstream connect', async () => {
+    const broker = await startBroker({ upstreamBaseUrl: 'http://10.255.255.1:81', upstreamTimeoutMs: 400 })
+    const result = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
+    expect(result.status).toBe(502)
+    expect(result.text).toContain('connect timed out')
   })
 })
