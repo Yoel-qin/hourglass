@@ -41,6 +41,7 @@ export interface MockLlmRequest {
   readonly stream: boolean
   readonly includeUsage: boolean
   readonly authorization: string | undefined
+  readonly acceptEncoding: string | undefined
   readonly mockHang: boolean
   readonly mockDropStream: boolean
   readonly mockStreamThenHang: boolean
@@ -110,6 +111,7 @@ export async function startMockLlmServer(config: MockLlmConfig, port = 0): Promi
         stream: parsed.stream === true,
         includeUsage: streamOptions.include_usage === true,
         authorization,
+        acceptEncoding: request.headers['accept-encoding'],
         mockHang: parsed.mockHang === true,
         mockDropStream: parsed.mockDropStream === true,
         mockStreamThenHang: parsed.mockStreamThenHang === true,

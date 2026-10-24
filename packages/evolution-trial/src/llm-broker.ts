@@ -162,6 +162,15 @@ export function errorDetail(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
+/** Parse a request target, or undefined when it is not a parsable URL. */
+export function parseRequestUrl(rawUrl: string): URL | undefined {
+  try {
+    return new URL(rawUrl, 'http://hourglass-broker.local')
+  } catch {
+    return undefined
+  }
+}
+
 /** Upstream port, applying the protocol default when the URL carries none. */
 export function portOf(target: URL): number {
   if (target.port !== '') return Number(target.port)
@@ -317,12 +326,12 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
   }
 
   const server: Server = createServer((request: IncomingMessage, response: ServerResponse) => {
-    // Template-string coercion (not ??): an undefined url/method becomes the
-    // literal 'undefined' and falls into the not-allowed refusal — same
-    // outcome, no unreachable branch for the coverage gate.
-    const incoming = new URL(`${request.url}`, 'http://hourglass-broker.local')
-    const isChat = request.method === 'POST' && /\/chat\/completions$/.test(incoming.pathname)
-    const isModels = request.method === 'GET' && /\/models$/.test(incoming.pathname)
+    // An unparsable target (e.g. an out-of-range port in absolute form) must
+    // be refused, never crash the broker — it is the chokepoint for an
+    // untrusted child.
+    const incoming = parseRequestUrl(`${request.url}`)
+    const isChat = request.method === 'POST' && incoming !== undefined && /\/chat\/completions$/.test(incoming.pathname)
+    const isModels = request.method === 'GET' && incoming !== undefined && /\/models$/.test(incoming.pathname)
     const chunks: Buffer[] = []
     let bodyBytes = 0
     request.on('data', (chunk: Buffer) => {
@@ -334,16 +343,19 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
         refuse(response, 413, `request body exceeds ${maxBodyBytes} bytes`, undefined)
         return
       }
-      if (!isChat && !isModels) {
-        refuse(response, 403, `path not allowed: ${request.method} ${incoming.pathname}`, undefined)
+      if (incoming === undefined || (!isChat && !isModels)) {
+        refuse(response, 403, `path not allowed: ${request.method} ${incoming?.pathname ?? `${request.url}`}`, undefined)
         return
       }
       if (isModels) {
         const headers = sanitizeHeaders(request.headers)
         applyCredential(headers, config)
+        // Capture the record's index at push time: a concurrent completion
+        // must not be overwritten by this probe's status patch.
+        const probeIndex = records.length
         record({ at: new Date().toISOString(), kind: 'models-probe', status: 0, model: undefined, promptTokens: undefined, completionTokens: undefined, totalTokens: undefined, reason: undefined })
         forward(response, 'GET', incoming.pathname, incoming.search, headers, undefined, 'models-probe', undefined, (status, _usage) => {
-          records[records.length - 1] = { ...records[records.length - 1], status }
+          records[probeIndex] = { ...records[probeIndex], status }
         })
         return
       }
@@ -418,9 +430,13 @@ function sanitizeHeaders(requestHeaders: IncomingMessage['headers']): Record<str
   // already comma-joined at the parser), so a plain string cast is exact.
   const source = requestHeaders as Record<string, string>
   for (const [key, value] of Object.entries(source)) {
-    if (key === 'authorization' || key === 'x-api-key' || key === 'host' || key === 'connection' || key === 'proxy-connection' || key === 'content-length' || key === 'transfer-encoding') continue
+    if (key === 'authorization' || key === 'x-api-key' || key === 'host' || key === 'connection' || key === 'proxy-connection' || key === 'content-length' || key === 'transfer-encoding' || key === 'accept-encoding') continue
     headers[key] = value
   }
+  // The tee-side usage parser reads plain UTF-8: compression would turn every
+  // response into usage-unknown and silently disable the token cap, so the
+  // broker never negotiates content codings with the upstream.
+  headers['accept-encoding'] = 'identity'
   return headers
 }
 

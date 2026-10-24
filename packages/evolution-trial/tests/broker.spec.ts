@@ -10,6 +10,7 @@ import {
   errorDetail,
   extractUsageFromJson,
   extractUsageFromSse,
+  parseRequestUrl,
   portOf,
   startLlmBroker,
   type LlmBroker,
@@ -524,5 +525,45 @@ describe('mock llm server (auth and lifecycle edges)', () => {
     const mock = await startMockLlmServer({ scripted: [] })
     await mock.stop()
     await expect(mock.stop()).rejects.toThrow()
+  })
+})
+
+describe('llm broker review fixes (PR #15 feedback)', () => {
+  it('never negotiates content codings with the upstream', async () => {
+    const mock = await startMock({ scripted: [{ content: 'plain', promptTokens: 2, completionTokens: 2 }] })
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl })
+    const result = await new Promise<{ status: number }>(resolve => {
+      const request = httpRequest(`${broker.baseUrl}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json', 'accept-encoding': 'gzip, br' } }, response => {
+        response.on('data', () => undefined)
+        response.on('end', () => resolve({ status: response.statusCode ?? 0 }))
+      })
+      request.end(JSON.stringify({ model: 'test-model', messages: [] }))
+    })
+    expect(result.status).toBe(200)
+    expect(mock.requests[0].acceptEncoding).toBe('identity')
+    expect(broker.report().totalTokens).toBe(4)
+  })
+
+  it('parseRequestUrl refuses unparsable targets instead of throwing', () => {
+    expect(parseRequestUrl('/chat/completions')?.pathname).toBe('/chat/completions')
+    expect(parseRequestUrl('http://a:999999999999999999/x')).toBeUndefined()
+  })
+
+  it('answers 403 to an unparsable absolute-form request target over the wire', async () => {
+    const mock = await startMock({ scripted: [] })
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl })
+    const raw = await new Promise<string>(resolve => {
+      const socket = netConnect({ host: '127.0.0.1', port: broker.port })
+      let seen = ''
+      socket.on('data', (chunk: Buffer) => {
+        seen += chunk.toString('utf8')
+        socket.end()
+      })
+      socket.on('end', () => resolve(seen))
+      socket.on('error', () => resolve(seen))
+      socket.write('POST http://a:999999999999999999/x HTTP/1.1\r\nHost: a\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+    })
+    expect(raw).toContain('403')
+    expect(mock.requests).toHaveLength(0)
   })
 })
