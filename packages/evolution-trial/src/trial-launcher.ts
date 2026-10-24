@@ -9,7 +9,7 @@
 
 import { spawn } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { TrialConfinement } from './confine-trial.ts'
 
@@ -86,10 +86,14 @@ export async function runTrial(request: TrialRequest): Promise<TrialResponse> {
   // workspace. The launcher owns workspace preparation for exactly this
   // reason — including creating it when the caller has not — while the
   // store, journal and benchmark paths are never touched.
-  mkdirSync(request.workspaceRoot, { recursive: true })
-  chmodSync(request.workspaceRoot, 0o777)
+  // Resolve to an absolute path ONCE: this process and the spawned driver
+  // may run with different cwds, so a relative root would resolve differently
+  // on each side.
+  const workspaceRoot = resolve(request.workspaceRoot)
+  mkdirSync(workspaceRoot, { recursive: true })
+  chmodSync(workspaceRoot, 0o777)
   const payload = JSON.stringify({
-    workspaceRoot: request.workspaceRoot,
+    workspaceRoot,
     ledgerPath: request.ledgerPath,
     commands: request.commands,
     net: request.confinement.net,
