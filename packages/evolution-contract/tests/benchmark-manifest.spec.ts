@@ -38,6 +38,38 @@ describe('benchmark manifest validation (v3.1 §4.2)', () => {
     expect(validateBenchmarkManifest(baseBenchmark({ version: 0 })).errors).toContain('malformed-field:version')
     expect(validateBenchmarkManifest('nope').errors).toEqual(['not-an-object'])
   })
+
+  it('rejects duplicate case ids in the declared set', () => {
+    const result = validateBenchmarkManifest(baseBenchmark({ caseIds: ['F-PUB-01', 'F-PUB-01', 'F-HID-01', 'S-SEC-01'] }))
+    expect(result.errors).toContain('duplicate-case-id')
+  })
+
+  it('rejects a wrong schema version and blank descriptive fields', () => {
+    expect(validateBenchmarkManifest(baseBenchmark({ schemaVersion: 'hourglass-evolution-benchmark/0' })).errors)
+      .toContain('schema-version-mismatch')
+    expect(validateBenchmarkManifest(baseBenchmark({ benchmarkId: '  ' })).errors).toContain('malformed-field:benchmarkId')
+  })
+
+  it('rejects a non-numeric version, malformed case arrays and a non-object inputSha256', () => {
+    expect(validateBenchmarkManifest(baseBenchmark({ version: 'one' })).errors).toContain('malformed-field:version')
+    expect(validateBenchmarkManifest(baseBenchmark({ caseIds: 'F-PUB-01' })).errors).toContain('malformed-field:caseIds')
+    expect(validateBenchmarkManifest(baseBenchmark({ inputSha256: ['nope'] })).errors).toContain('malformed-field:inputSha256')
+  })
+
+  it('rejects input hashes that are not sha256 digests', () => {
+    const manifest = baseBenchmark() as Record<string, unknown>
+    ;(manifest.inputSha256 as Record<string, string>)['F-PUB-01'] = 'xyz'
+    expect(validateBenchmarkManifest(manifest).errors).toContain('malformed-input-hash:F-PUB-01')
+  })
+
+  it('rejects public/hidden/security ids that are not declared cases', () => {
+    expect(validateBenchmarkManifest(baseBenchmark({ publicCaseIds: ['F-PUB-01', 'F-GHOST'] })).errors)
+      .toContain('public-case-not-declared:F-GHOST')
+    expect(validateBenchmarkManifest(baseBenchmark({ hiddenCaseIds: ['F-HID-01', 'F-GHOST'] })).errors)
+      .toContain('hidden-case-not-declared:F-GHOST')
+    expect(validateBenchmarkManifest(baseBenchmark({ securityCaseIds: ['S-SEC-01', 'F-GHOST'] })).errors)
+      .toContain('security-case-not-declared:F-GHOST')
+  })
 })
 
 describe('manifest hash locking', () => {

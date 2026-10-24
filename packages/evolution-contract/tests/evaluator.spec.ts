@@ -110,4 +110,78 @@ describe('evaluator metrics', () => {
     expect(metrics.latencyP95DegradationPct).toBeUndefined()
     expect(metrics.tokenDeltaPct).toBeUndefined()
   })
+
+  it('treats a zero baseline p95 / zero token total as not comparable', () => {
+    const zero = [
+      { cases: runFromBits([1, 1], ['a', 'a'], 'b', { latencyMs: 0, costTokens: 0 }).cases },
+      { cases: runFromBits([1, 1], ['a', 'a'], 'c', { latencyMs: 0, costTokens: 0 }).cases },
+    ] as const
+    const metrics = computeMetrics(zero[0].cases, zero[1].cases)
+    expect(metrics.latencyP95DegradationPct).toBeUndefined()
+    expect(metrics.tokenDeltaPct).toBeUndefined()
+  })
+
+  it('treats one-sided token reporting as not comparable', () => {
+    const metrics = computeMetrics(
+      runFromBits([1, 1], ['a', 'a'], 'b', { costTokens: 100 }).cases,
+      runFromBits([1, 1], ['a', 'a'], 'c').cases,
+    )
+    expect(metrics.tokenDeltaPct).toBeUndefined()
+  })
+
+  it('handles empty runs and a category absent from one side', () => {
+    const empty = computeMetrics([], [])
+    expect(empty.latencyP95DegradationPct).toBeUndefined()
+    expect(empty.tokenDeltaPct).toBeUndefined()
+    const shifted = computeMetrics(
+      [{ caseId: 'c1', category: 'a', success: true }],
+      [{ caseId: 'c1', category: 'b', success: true }],
+    )
+    expect(shifted.categoryRegressions).toEqual(['a'])
+  })
+})
+
+describe('evaluator remaining gates', () => {
+  it('rejects on an execution-count mismatch without any skip', () => {
+    const output = evaluate(inputFromScenario({
+      name: 'count-mismatch',
+      baseline: [1, 0, 1, 0, 1, 0, 1, 0],
+      candidate: [1, 1, 1, 1, 1, 1, 1, 1],
+      categories: CATS8,
+      counts: { expected: 9, executed: 8, skipped: 0, blocked: 0 },
+      expected: { decision: 'reject' as const, reasonCodes: ['execution-count-mismatch'] },
+    }))
+    expect(output.decision).toBe('reject')
+    expect(output.reasonCodes).toEqual(['execution-count-mismatch'])
+  })
+
+  it('a stable control run falls through to the sample-size gate', () => {
+    const output = evaluate({
+      policy: MVP_A_POLICY,
+      baseline: runFromBits([1, 0], ['a', 'a'], 'b'),
+      candidate: runFromBits([1, 1], ['a', 'a'], 'c'),
+      controlRun: runFromBits([1, 0], ['a', 'a'], 'control'),
+      securityFindings: [],
+      executionCounts: { expected: 2, executed: 2, skipped: 0, blocked: 0 },
+      environmentFingerprintMatch: true,
+      capabilityGaps: [],
+    })
+    expect(output.decision).toBe('inconclusive')
+    expect(output.reasonCodes).toEqual(['insufficient-samples'])
+  })
+
+  it('an empty control run diverges from a non-empty baseline as unstable', () => {
+    const output = evaluate({
+      policy: MVP_A_POLICY,
+      baseline: runFromBits([1, 0], ['a', 'a'], 'b'),
+      candidate: runFromBits([1, 1], ['a', 'a'], 'c'),
+      controlRun: { runId: 'control', cases: [] },
+      securityFindings: [],
+      executionCounts: { expected: 2, executed: 2, skipped: 0, blocked: 0 },
+      environmentFingerprintMatch: true,
+      capabilityGaps: [],
+    })
+    expect(output.decision).toBe('inconclusive')
+    expect(output.reasonCodes).toEqual(['unstable-environment'])
+  })
 })

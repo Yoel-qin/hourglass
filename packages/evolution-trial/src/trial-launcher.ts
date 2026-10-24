@@ -8,7 +8,7 @@
  */
 
 import { spawn } from 'node:child_process'
-import { chmodSync, existsSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { TrialConfinement } from './confine-trial.ts'
@@ -26,6 +26,11 @@ export interface TrialRequest {
   readonly confinement: TrialConfinement
   /** Driver override for tests; default resolution is container-first. */
   readonly driverPath?: string
+  /**
+   * Working directory for the driver process (test hook; the default is the
+   * fused DSH workspace when present, else this process's cwd).
+   */
+  readonly driverCwd?: string
 }
 
 export interface TrialCommandResult {
@@ -46,8 +51,13 @@ export interface TrialResponse {
   readonly timedOut?: boolean
 }
 
-export function resolveDriverPath(explicit?: string): string {
-  const candidates = [
+/**
+ * Resolve the trial driver. The candidate list is injectable so the
+ * not-found throw is testable in an environment where the container paths
+ * always exist.
+ */
+export function resolveDriverPath(explicit?: string, candidatesOverride?: readonly string[]): string {
+  const candidates = (candidatesOverride ?? [
     explicit,
     process.env['HOURGLASS_EVOLUTION_DRIVER'],
     // Fused workspace copies (container): resolve @hourglass/@deepseek-ai deps.
@@ -57,15 +67,16 @@ export function resolveDriverPath(explicit?: string): string {
     '/opt/dsh/packages/hourglass/evolution-runner/driver/trial-driver.ts',
     // Repo layout (relative to this package's src/).
     join(dirnameOf(import.meta.url), '..', '..', '..', 'scripts', 'sandbox-evolution', 'driver', 'trial-driver.ts'),
-  ].filter((value): value is string => typeof value === 'string' && value !== '')
+  ]).filter((value): value is string => typeof value === 'string' && value !== '')
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate
   }
   throw new Error(`trial-driver-not-found:${candidates.join(' | ')}`)
 }
 
-function driverCwd(): string {
-  return existsSync('/opt/dsh') ? '/opt/dsh' : process.cwd()
+/** The driver runs from the fused DSH workspace when present, else the cwd. */
+export function driverCwd(root = '/opt/dsh'): string {
+  return existsSync(root) ? root : process.cwd()
 }
 
 export async function runTrial(request: TrialRequest): Promise<TrialResponse> {
@@ -73,7 +84,9 @@ export async function runTrial(request: TrialRequest): Promise<TrialResponse> {
   // The rsrc budget's nproc cap is enforced with a setpriv uid downgrade, so
   // the trial (running as an unprivileged uid) must be able to write its own
   // workspace. The launcher owns workspace preparation for exactly this
-  // reason; the store, journal and benchmark paths are never touched.
+  // reason — including creating it when the caller has not — while the
+  // store, journal and benchmark paths are never touched.
+  mkdirSync(request.workspaceRoot, { recursive: true })
   chmodSync(request.workspaceRoot, 0o777)
   const payload = JSON.stringify({
     workspaceRoot: request.workspaceRoot,
@@ -85,18 +98,16 @@ export async function runTrial(request: TrialRequest): Promise<TrialResponse> {
   })
   return await new Promise<TrialResponse>(resolve => {
     const child = spawn(process.execPath, ['--experimental-strip-types', driverPath], {
-      cwd: driverCwd(),
+      cwd: request.driverCwd ?? driverCwd(),
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     let stdout = ''
     let stderr = ''
-    let settled = false
+    // Every handler resolves the SAME promise: after the first resolution
+    // the rest are no-ops by promise semantics, so no settled flag is needed.
     const timer = setTimeout(() => {
       child.kill('SIGKILL')
-      if (!settled) {
-        settled = true
-        resolve({ ok: false, results: [], ledger: [], error: 'trial-watchdog-timeout', timedOut: true })
-      }
+      resolve({ ok: false, results: [], ledger: [], error: 'trial-watchdog-timeout', timedOut: true })
     }, request.confinement.watchdogMs)
     child.stdout.on('data', chunk => {
       stdout += String(chunk)
@@ -106,23 +117,19 @@ export async function runTrial(request: TrialRequest): Promise<TrialResponse> {
     })
     child.on('error', error => {
       clearTimeout(timer)
-      if (!settled) {
-        settled = true
-        resolve({ ok: false, results: [], ledger: [], error: `driver-spawn-failed:${error.message}` })
-      }
+      resolve({ ok: false, results: [], ledger: [], error: `driver-spawn-failed:${error.message}` })
     })
     child.on('close', () => {
       clearTimeout(timer)
-      if (settled) return
-      settled = true
       const text = stdout.trim()
       if (text === '') {
         resolve({ ok: false, results: [], ledger: [], error: `driver-no-output:stderr=${stderr.slice(0, 500)}` })
         return
       }
       try {
-        const lastLine = text.split('\n').pop() ?? ''
-        resolve(JSON.parse(lastLine) as TrialResponse)
+        // stdout is non-empty here, so split() always yields at least one line.
+        const lines = text.split('\n')
+        resolve(JSON.parse(lines[lines.length - 1] as string) as TrialResponse)
       } catch (error) {
         resolve({ ok: false, results: [], ledger: [], error: `driver-output-unparseable:${String(error)}` })
       }

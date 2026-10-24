@@ -1,7 +1,8 @@
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { sha256Hex } from '@hourglass/evolution-contract/src/index.ts'
 import { CandidateStore } from '../src/candidate-store.ts'
 import type { SealRequest } from '../src/candidate-store.ts'
 
@@ -73,5 +74,37 @@ describe('CandidateStore (EVO-CAND contract semantics)', () => {
     const manifest = await store.seal(sealRequest('round trip'))
     const raw: unknown = JSON.parse(readFileSync(store.manifestPath(manifest.candidateId), 'utf8'))
     expect(raw).toEqual(manifest)
+  })
+
+  it('refuses a seal whose artifact path already holds different content', async () => {
+    const store = new CandidateStore(join(root, 'g'))
+    const payload = 'colliding payload'
+    const sha = sha256Hex(payload)
+    writeFileSync(store.artifactPath(sha), 'pre-existing different bytes', 'utf8')
+    await expect(store.seal(sealRequest(payload))).rejects.toThrow(/artifact-hash-collision/)
+  })
+
+  it('refuses to load a stored manifest that no longer validates', async () => {
+    const store = new CandidateStore(join(root, 'h'))
+    const manifest = await store.seal(sealRequest('will be poisoned'))
+    const poisoned = { ...manifest, assetKind: 'host_plugin' }
+    writeFileSync(store.manifestPath(manifest.candidateId), JSON.stringify(poisoned), 'utf8')
+    expect(() => store.load(manifest.candidateId)).toThrow(/stored-manifest-invalid/)
+  })
+
+  it('reports a missing artifact distinctly from a tampered one', async () => {
+    const store = new CandidateStore(join(root, 'i'))
+    const manifest = await store.seal(sealRequest('will disappear'))
+    rmSync(store.artifactPath(manifest.payloadSha256), { force: true })
+    const verification = store.verifyArtifact(manifest.candidateId)
+    expect(verification.ok).toBe(false)
+    expect(verification.reason).toMatch(/^artifact-missing:/)
+  })
+
+  it('propagates non-EEXIST write errors instead of swallowing them', async () => {
+    const store = new CandidateStore(join(root, 'j'))
+    rmSync(join(root, 'j', 'manifests'), { recursive: true, force: true })
+    writeFileSync(join(root, 'j', 'manifests'), 'now a file', 'utf8')
+    await expect(store.seal(sealRequest('manifest write will fail'))).rejects.toThrow()
   })
 })

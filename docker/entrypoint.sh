@@ -74,6 +74,30 @@ do_rob04() {
     --cycles="${ROB04_CYCLES:-1000}" --out="$REPORTS/runs/rob04-latest.json" 2>&1 | tee "$REPORTS/runs/rob04-latest.txt"
 }
 
+do_evolution_smoke() {
+  log "running evolution gate pipeline (improved candidate must pass)"
+  node --experimental-strip-types "$DSH/packages/hourglass/evolution-runner/run.ts" \
+    --out="$REPORTS/runs/evolution-smoke-latest" 2>&1 | tee "$REPORTS/runs/evolution-smoke-latest.txt"
+  log "running evolution gate pipeline (no-change candidate must be rejected)"
+  node --experimental-strip-types "$DSH/packages/hourglass/evolution-runner/run.ts" \
+    --out="$REPORTS/runs/evolution-nochange-latest" --candidate=nochange --expect=reject 2>&1 | tee "$REPORTS/runs/evolution-nochange-latest.txt"
+}
+
+do_evolution_coverage() {
+  log "running evolution per-file 100% coverage gate (evolution packages only)"
+  cd "$DSH"
+  set +e
+  NO_COLOR=1 pnpm exec vitest run packages/hourglass/evolution-contract packages/hourglass/evolution-trial \
+    --config vitest.config.ts --coverage \
+    --coverage.include='packages/hourglass/evolution-contract/src/**' \
+    --coverage.include='packages/hourglass/evolution-trial/src/**' 2>&1 | tee "$REPORTS/runs/evolution-coverage-latest.txt"
+  local status=${PIPESTATUS[0]}
+  set -e
+  grep -qE 'Test Files[[:space:]]+[0-9]+ passed' "$REPORTS/runs/evolution-coverage-latest.txt" \
+    || { echo '[hourglass] evolution coverage gate failed: no passing test files summary' >&2; exit 1; }
+  return "$status"
+}
+
 case "${1:-bash}" in
   gates)        do_gates ;;
   unit)         do_unit ;;
@@ -82,7 +106,9 @@ case "${1:-bash}" in
   compare-cube) do_compare_cube ;;
   perf)         do_perf ;;
   rob04)        do_rob04 ;;
-  run-all)      do_gates; do_unit; do_compare; do_perf; do_rob04 ;;
+  evolution-smoke)    do_evolution_smoke ;;
+  evolution-coverage) do_evolution_coverage ;;
+  run-all)      do_gates; do_unit; do_evolution_smoke; do_evolution_coverage; do_compare; do_perf; do_rob04 ;;
   bash)         exec bash ;;
   *)            exec "$@" ;;
 esac

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -67,5 +67,12 @@ describe('validation-pack export (EVO-PROMOTE-01)', () => {
     const a = exportValidationPack(exportInput({ bindings: bindings({ trialId: 'trial-a' }) }))
     const b = exportValidationPack(exportInput({ bindings: bindings({ trialId: 'trial-b' }) }))
     expect(a.packPath).not.toBe(b.packPath)
+  })
+
+  it('refuses a re-export whose existing file content differs', () => {
+    const first = exportValidationPack(exportInput({ bindings: bindings({ trialId: 'trial-conflict' }) }))
+    writeFileSync(first.packPath, '{"imposter":true}', 'utf8')
+    expect(() => exportValidationPack(exportInput({ bindings: bindings({ trialId: 'trial-conflict' }) })))
+      .toThrow(/pack-path-conflict/)
   })
 })

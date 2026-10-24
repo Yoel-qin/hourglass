@@ -61,4 +61,20 @@ describe('EvolutionJournal (hash-chain lifecycle events)', () => {
     expect(event?.trialId).toBe('trial-9')
     expect(event?.candidateId).toBe('cand-9')
   })
+
+  it('treats an empty journal file as zero events', () => {
+    const path = journalPath('empty')
+    writeFileSync(path, '', 'utf8')
+    expect(new EvolutionJournal(path).events()).toEqual([])
+  })
+
+  it('strict mode throws on append failure while non-strict swallows it', () => {
+    const missingDir = join(root, 'no-such-dir', 'j.jsonl')
+    const strict = new EvolutionJournal(missingDir, { strict: true })
+    expect(() => strict.append('boom')).toThrow()
+    const lenient = new EvolutionJournal(missingDir, { strict: false })
+    const event = lenient.append('boom')
+    expect(event.kind).toBe('boom')
+    expect(lenient.events()).toEqual([])
+  })
 })

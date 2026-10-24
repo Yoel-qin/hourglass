@@ -26,9 +26,16 @@ export const Config: z<Config> = z.object({
   rootDir: z.string().default('hourglass-evolution'),
 })
 
+/** Rendering for thrown values of any shape (Errors carry their message). */
+export function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 export function apply(ctx: Context, config: Config): void {
-  const store = new CandidateStore(join(config.rootDir ?? 'hourglass-evolution', 'candidates'))
-  const journal = new EvolutionJournal(join(config.rootDir ?? 'hourglass-evolution', 'evolution-journal.jsonl'))
+  // config.rootDir is always a string here: the schemastery Config schema
+  // fills the 'hourglass-evolution' default before apply sees it.
+  const store = new CandidateStore(join(config.rootDir, 'candidates'))
+  const journal = new EvolutionJournal(join(config.rootDir, 'evolution-journal.jsonl'))
 
   ctx.inject(['commands'], (commandCtx: Context) => {
     commandCtx.commands.register({
@@ -43,7 +50,7 @@ export function apply(ctx: Context, config: Config): void {
           const chain = journal.verify()
           return {
             kind: 'success' as const,
-            text: `journal ${chain.ok ? 'chain-ok' : `CHAIN-BROKEN:${chain.reason ?? 'unknown'}`}: `
+            text: `journal ${chain.ok ? 'chain-ok' : `CHAIN-BROKEN:${chain.reason}`}: `
               + `${events.length} event(s), last=${events.length === 0 ? '(empty)' : events[events.length - 1].kind}\n`
               + 'recent: ' + events.slice(-5).map(event => `${event.seq}:${event.kind}`).join(', '),
           }
@@ -69,7 +76,7 @@ export function apply(ctx: Context, config: Config): void {
             text: `${JSON.stringify(manifest)}\nartifact: ${verification.ok ? 'verified' : `BROKEN:${verification.reason}`}`,
           }
         } catch (error) {
-          return { kind: 'error' as const, text: String(error instanceof Error ? error.message : error) }
+          return { kind: 'error' as const, text: errorText(error) }
         }
       },
     })
@@ -81,7 +88,7 @@ export { EvolutionJournal, GENESIS_HASH } from './evolution-journal.ts'
 export type { JournalEvent, JournalRefs, JournalVerifyResult } from './evolution-journal.ts'
 export { buildTrialConfinement, TRIAL_RSRC_DEFAULTS } from './confine-trial.ts'
 export type { TrialConfinement, TrialRsrcBudget } from './confine-trial.ts'
-export { resolveDriverPath, runTrial } from './trial-launcher.ts'
+export { driverCwd, resolveDriverPath, runTrial } from './trial-launcher.ts'
 export type { TrialCommand, TrialRequest, TrialResponse, TrialCommandResult } from './trial-launcher.ts'
 export { exportValidationPack, loadPack, packPathFor, verifyValidationPack } from './validation-pack.ts'
 export type { ExportPackInput, ExportedPack } from './validation-pack.ts'
