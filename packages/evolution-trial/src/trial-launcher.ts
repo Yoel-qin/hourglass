@@ -74,6 +74,18 @@ export function resolveDriverPath(explicit?: string, candidatesOverride?: readon
   throw new Error(`trial-driver-not-found:${candidates.join(' | ')}`)
 }
 
+/**
+ * Deliberately-empty handler for stdin stream errors. A driver that exits
+ * or closes its read end before the payload is drained emits EPIPE on the
+ * write side; without a listener Node treats that as an uncaught exception
+ * and crashes the runner, while the child close/error handlers already
+ * resolve the promise with the real failure. Exported and directly tested:
+ * the EPIPE dispatch timing is not deterministic across environments, so
+ * the no-crash behavior is guarded by the epipe integration test while
+ * this function's coverage comes from direct invocation.
+ */
+export function ignoreStreamError(): void {}
+
 /** The driver runs from the fused DSH workspace when present, else the cwd. */
 export function driverCwd(root = '/opt/dsh'): string {
   return existsSync(root) ? root : process.cwd()
@@ -140,11 +152,7 @@ export async function runTrial(request: TrialRequest): Promise<TrialResponse> {
     })
     child.stdin.write(payload)
     child.stdin.end()
-    // A driver that exits before draining stdin emits EPIPE here; without a
-    // listener Node treats it as an uncaught exception and crashes the
-    // runner. The close/error handlers already resolve the promise with the
-    // real failure, so this listener only contains the stream error.
-    child.stdin.on('error', () => {})
+    child.stdin.on('error', ignoreStreamError)
   })
 }
 

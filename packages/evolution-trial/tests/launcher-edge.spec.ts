@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { buildTrialConfinement, driverCwd, resolveDriverPath, runTrial } from '../src/index.ts'
+import { buildTrialConfinement, driverCwd, ignoreStreamError, resolveDriverPath, runTrial } from '../src/index.ts'
 
 /**
  * Launcher edge paths that do NOT need bwrap: driver resolution failures,
@@ -41,6 +41,10 @@ describe('driver resolution', () => {
   it('driverCwd falls back to the process cwd for a missing root', () => {
     expect(driverCwd('/definitely/missing-root')).toBe(process.cwd())
     expect(driverCwd()).toBe(driverCwd('/opt/dsh'))
+  })
+
+  it('ignoreStreamError is a callable no-op (the EPIPE containment listener)', () => {
+    expect(() => ignoreStreamError()).not.toThrow()
   })
 })
 
