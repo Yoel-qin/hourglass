@@ -77,6 +77,12 @@ jobs:
           CONFIG__FALLBACK_MODELS: '[]'
           # 自定义模型不在 pr-agent 内置的 MAX_TOKENS 表里，需显式声明
           CONFIG__CUSTOM_MODEL_MAX_TOKENS: '32000'
+          # 大 PR 的评审覆盖：diff 超过切块阈值（约 700 行）会被分成多块，
+          # 每块一次 LLM 调用；全局调用预算 max_budget 默认仅 10，发布级大 PR
+          # （如 v2 合入的 +5662 行）会因预算耗尽跳过剩余块并提示
+          # "由于令牌预算或最大块调用次数限制，未分析"。调大预算让全部块
+          # 得到分析；代价是 DeepSeek token 费用与评审时长线性增加。
+          CONFIG__MAX_BUDGET: '30'
           GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: 'true'
           GITHUB_ACTION_CONFIG__AUTO_REVIEW: 'true'
           GITHUB_ACTION_CONFIG__AUTO_IMPROVE: 'true'
