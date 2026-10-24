@@ -36,6 +36,7 @@ export {
   MVP_A_POLICY,
   computeMetrics,
   evaluate,
+  zForConfidence,
 } from './evaluator.ts'
 export type {
   EvaluationInput,

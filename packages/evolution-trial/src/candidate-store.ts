@@ -78,7 +78,20 @@ export class CandidateStore {
       }
     })
     const manifestPath = this.manifestPath(candidateId)
-    writeWithNoOverwrite(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, () => {})
+    // The candidateId digest covers payload/parent/kind only; the manifest
+    // additionally binds benchmark + environment identity. A re-seal of the
+    // same payload under a DIFFERENT benchmark must fail loudly — silently
+    // returning the stored manifest would bind the decision to the wrong
+    // benchmark (PR #11 review finding).
+    writeWithNoOverwrite(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, existingManifestText => {
+      const stored = JSON.parse(existingManifestText) as CandidateManifest
+      const bindingFields = ['benchmarkId', 'benchmarkVersion', 'benchmarkManifestSha256', 'versionsLockSha256', 'environmentFingerprint'] as const
+      for (const field of bindingFields) {
+        if (stored[field] !== manifest[field]) {
+          throw new Error(`candidate-id-collision:${field} differs (stored=${String(stored[field])}, requested=${String(manifest[field])}); create a distinct payload or benchmark rotation`)
+        }
+      }
+    })
     return this.load(candidateId)
   }
 

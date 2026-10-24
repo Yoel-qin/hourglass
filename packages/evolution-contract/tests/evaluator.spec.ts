@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { MVP_A_POLICY, computeMetrics, evaluate } from '../src/index.ts'
+import { MVP_A_POLICY, computeMetrics, evaluate, zForConfidence } from '../src/index.ts'
 import type { EvaluationInput, EvaluationOutput, SecurityFindingKind } from '../src/index.ts'
 import { CATS8, countsOk, runFromBits } from './helpers.ts'
 
@@ -80,6 +80,25 @@ describe('evaluator golden (EVO-BENCH contract semantics)', () => {
   })
 })
 
+describe('z quantile from the locked confidence', () => {
+  it('matches the standard normal quantiles at common levels', () => {
+    expect(zForConfidence(0.90)).toBeCloseTo(1.644854, 6)
+    expect(zForConfidence(0.95)).toBeCloseTo(1.959964, 6)
+    expect(zForConfidence(0.99)).toBeCloseTo(2.575829, 6)
+  })
+
+  it('covers the upper-tail approximation branch beyond the central split', () => {
+    expect(zForConfidence(0.96)).toBeCloseTo(2.053749, 5)
+    expect(zForConfidence(0.999)).toBeCloseTo(3.290527, 5)
+  })
+
+  it('rejects confidence outside (0,1)', () => {
+    for (const bad of [0, 1, -0.5, 1.5, Number.NaN]) {
+      expect(() => zForConfidence(bad)).toThrow(/ciConfidence must be in \(0,1\)/)
+    }
+  })
+})
+
 describe('evaluator metrics', () => {
   it('computes paired improvement and CI on a known vector', () => {
     const metrics = computeMetrics(
@@ -109,6 +128,15 @@ describe('evaluator metrics', () => {
     )
     expect(metrics.latencyP95DegradationPct).toBeUndefined()
     expect(metrics.tokenDeltaPct).toBeUndefined()
+  })
+
+  it('tightens the CI lower bound as the locked confidence rises', () => {
+    const baselineCases = runFromBits([1, 0, 1, 0, 1, 0, 1, 0], CATS8, 'b').cases
+    const candidateCases = runFromBits([1, 1, 1, 1, 1, 1, 1, 1], CATS8, 'c').cases
+    const at95 = computeMetrics(baselineCases, candidateCases, 0.95)
+    const at99 = computeMetrics(baselineCases, candidateCases, 0.99)
+    expect(at99.ciLowerPctPoints).toBeLessThan(at95.ciLowerPctPoints)
+    expect(at95.ciLowerPctPoints).toBeGreaterThan(0)
   })
 
   it('treats a zero baseline p95 / zero token total as not comparable', () => {

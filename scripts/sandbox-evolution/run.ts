@@ -75,24 +75,25 @@ function sha256File(path: string): string {
 /**
  * The environment gate must compare against an INDEPENDENT source, not the
  * same variable that populated the sealed manifests (PR #4 review finding:
- * a tautological comparison is fail-open). The installed DSH tree is a real
- * git checkout; in the container image the upstream commit is recorded as a
- * TAG on the materialized commit (docker/Dockerfile tags it with the pinned
- * sha), so prefer the tag and fall back to HEAD for plain checkouts. If the
- * tree cannot be read at all, the environment is treated as mismatched.
+ * a tautological comparison is fail-open). The installed DSH tree's HEAD
+ * sha must equal the lock's pinned commit — OR a tag pointing at HEAD must
+ * carry exactly that pinned sha (the container image materializes a fresh
+ * commit and tags it with the upstream sha). A plain version tag like
+ * v1.2.3 must NOT produce a false mismatch (PR #11 review finding).
  */
-function detectInstalledDshCommit(): string | undefined {
+function detectInstalledDsh(): { headSha?: string; tags: string[] } {
   for (const dshRoot of ['/opt/dsh', join(BASE_DIR, '..', '..', '..', 'deepseek-harness')]) {
     if (!existsSync(join(dshRoot, '.git'))) continue
-    const tag = spawnSync('git', ['-C', dshRoot, 'tag', '--points-at', 'HEAD'], { encoding: 'utf8' })
-    if (tag.status === 0) {
-      const first = (tag.stdout ?? '').trim().split('\n')[0] ?? ''
-      if (first !== '') return first
-    }
     const head = spawnSync('git', ['-C', dshRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' })
-    if (head.status === 0) return (head.stdout ?? '').trim()
+    const tag = spawnSync('git', ['-C', dshRoot, 'tag', '--points-at', 'HEAD'], { encoding: 'utf8' })
+    if (head.status !== 0) continue
+    const headSha = (head.stdout ?? '').trim()
+    const tags = tag.status === 0
+      ? (tag.stdout ?? '').trim().split('\n').filter(line => line !== '')
+      : []
+    return { headSha: headSha === '' ? undefined : headSha, tags }
   }
-  return undefined
+  return { tags: [] }
 }
 
 const BASE_DIR = dirname(fileURLToPath(import.meta.url))
@@ -202,12 +203,12 @@ async function main(): Promise<number> {
   // installed DSH checkout's actual commit must equal the lock's pinned
   // commit, and the sealed fingerprints must equal the lock-derived value.
   // Any failure here (including an unreadable git tree) is a mismatch.
-  const installedDshCommit = detectInstalledDshCommit()
-  const environmentFingerprintMatch = installedDshCommit === lock.lock.dshCommit
+  const installed = detectInstalledDsh()
+  const environmentFingerprintMatch = (installed.headSha === lock.lock.dshCommit || installed.tags.includes(lock.lock.dshCommit))
     && baselineManifest.environmentFingerprint === runtimeFingerprint
     && candidateManifest.environmentFingerprint === runtimeFingerprint
   if (!environmentFingerprintMatch) {
-    console.error(`[evolution] environment mismatch: installed=${installedDshCommit ?? 'unreadable'} lock=${lock.lock.dshCommit}`)
+    console.error(`[evolution] environment mismatch: head=${installed.headSha ?? 'unreadable'} tags=[${installed.tags.join(',')}] lock=${lock.lock.dshCommit}`)
   }
 
   // 5. Paired trials. The adapter is deterministic directive coverage: a

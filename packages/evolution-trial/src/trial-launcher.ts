@@ -140,6 +140,11 @@ export async function runTrial(request: TrialRequest): Promise<TrialResponse> {
     })
     child.stdin.write(payload)
     child.stdin.end()
+    // A driver that exits before draining stdin emits EPIPE here; without a
+    // listener Node treats it as an uncaught exception and crashes the
+    // runner. The close/error handlers already resolve the promise with the
+    // real failure, so this listener only contains the stream error.
+    child.stdin.on('error', () => {})
   })
 }
 

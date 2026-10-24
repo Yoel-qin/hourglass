@@ -70,6 +70,23 @@ describe('launcher failure modes', () => {
     expect(response.error).toMatch(/^driver-output-unparseable:/)
   })
 
+  it('contains an EPIPE on stdin instead of crashing the runner', { timeout: 15_000 }, async () => {
+    const driver = join(root, 'epipe.mjs')
+    // Destroy the read end and STAY alive: the oversized payload keeps
+    // writing after the reader is gone, which is what actually produces
+    // the EPIPE the stdin error listener must contain.
+    writeFileSync(driver, 'process.stdin.destroy(); setInterval(() => {}, 1000)\n', 'utf8')
+    const oversized = 'x'.repeat(200_000)
+    const response = await runTrial(trialRequest({
+      driverPath: driver,
+      commands: [{ callId: 'big', command: oversized }],
+    }) as never)
+    expect(response).toBeDefined()
+    expect(response.ok).toBe(false)
+    // The driver never exits on its own: the watchdog is what resolves.
+    expect(response.timedOut).toBe(true)
+  })
+
   it('reports a spawn failure (missing working directory)', { timeout: 15_000 }, async () => {
     const driver = join(root, 'any.mjs')
     writeFileSync(driver, 'process.exit(0)\n', 'utf8')

@@ -101,6 +101,17 @@ describe('CandidateStore (EVO-CAND contract semantics)', () => {
     expect(verification.reason).toMatch(/^artifact-missing:/)
   })
 
+  it('refuses a re-seal of the same payload under a different benchmark binding', async () => {
+    const store = new CandidateStore(join(root, 'k'))
+    const payload = 'same payload across benchmarks'
+    const first = await store.seal(sealRequest(payload))
+    await expect(store.seal(sealRequest(payload, { benchmarkManifestSha256: 'f'.repeat(64) })))
+      .rejects.toThrow(/candidate-id-collision:benchmarkManifestSha256/)
+    // The identical binding still dedupes cleanly.
+    const again = await store.seal(sealRequest(payload, { benchmarkVersion: first.benchmarkVersion }))
+    expect(again.candidateId).toBe(first.candidateId)
+  })
+
   it('propagates non-EEXIST write errors instead of swallowing them', async () => {
     const store = new CandidateStore(join(root, 'j'))
     rmSync(join(root, 'j', 'manifests'), { recursive: true, force: true })
