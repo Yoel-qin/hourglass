@@ -25,6 +25,12 @@ export interface UsageCaps {
   readonly maxCalls: number
   /** Concurrent in-flight calls; bounds the token-cap burst race (usage lands only at response end). */
   readonly maxConcurrentCalls?: number
+  /**
+   * Tokens charged against the budget for every call that settles without
+   * upstream usage (client abort / unparseable usage). Fail-closed pricing
+   * of unknowable spend; 0 keeps the honest-unknown behavior.
+   */
+  readonly abortedCallTokenCharge?: number
   /** Sum of upstream-reported total tokens allowed per broker lifetime. */
   readonly maxTotalTokens: number
   /** Broker wall-clock budget in milliseconds, checked before each call. */
@@ -80,6 +86,8 @@ export interface UsageReport {
   readonly usageUnknownCalls: number
   /** Set when a hard cap refused a request; the reason stays latched. */
   readonly cappedReason: string | undefined
+  /** Records evicted by the ring buffer (they remain in the JSONL log, if any). */
+  readonly droppedRecords: number
   readonly records: readonly UsageRecord[]
 }
 
@@ -96,6 +104,8 @@ const DEFAULT_MAX_BODY_BYTES = 1024 * 1024
 const CONNECT_PHASE_TIMEOUT_MS = 15_000
 /** Default concurrent-call bound backing the token-cap race guard. */
 const DEFAULT_MAX_CONCURRENT_CALLS = 4
+/** Upper bound on in-memory usage records; older ones are dropped (counted). */
+export const MAX_RECORDS = 512
 
 function positiveNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
@@ -160,7 +170,8 @@ export function extractUsageFromMessagesJson(bodyText: string): UsageCounts | un
 export function extractUsageFromSse(bodyText: string): UsageCounts | undefined {
   let found: UsageCounts | undefined
   for (const line of bodyText.split('\n')) {
-    const match = /^data: (.+)$/.exec(line)
+    // CR-tolerant: CRLF-terminated frames are valid SSE (non-Node gateways).
+    const match = /^data: (.+)\r?$/.exec(line)
     if (match === null || match[1] === '[DONE]') continue
     const candidate = extractUsageFromJson(match[1])
     if (candidate !== undefined) found = candidate
@@ -177,7 +188,8 @@ export function extractUsageFromMessagesSse(bodyText: string): UsageCounts | und
   let promptTokens: number | undefined
   let completionTokens: number | undefined
   for (const line of bodyText.split('\n')) {
-    const match = /^data: (.+)$/.exec(line)
+    // CR-tolerant: CRLF-terminated frames are valid SSE (non-Node gateways).
+    const match = /^data: (.+)\r?$/.exec(line)
     if (match === null || match[1] === '[DONE]') continue
     let event: unknown
     try {
@@ -374,8 +386,16 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
   let usageUnknownCalls = 0
   let cappedReason: string | undefined
   const records: UsageRecord[] = []
+  let droppedRecords = 0
 
   const record = (entry: UsageRecord): void => {
+    // Ring buffer: the broker is the chokepoint for an untrusted child, and
+    // cheap refused requests must not grow host memory (or the sync log
+    // write path) without bound.
+    if (records.length >= MAX_RECORDS) {
+      records.shift()
+      droppedRecords += 1
+    }
     records.push(entry)
     if (usageLogPath !== undefined) {
       try {
@@ -414,6 +434,13 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
         record({ at: new Date().toISOString(), kind: 'refused', status: 502, model, promptTokens: undefined, completionTokens: undefined, totalTokens: undefined, reason })
         response.writeHead(502, { 'content-type': 'application/json' })
         response.end(`${JSON.stringify({ error: { message: `hourglass broker: upstream connection failed: ${reason}`, type: 'hourglass-broker-upstream' } })}\n`)
+        // This path never creates the upstream request, so no close handler
+        // will run: settle the slot HERE or every refused connect leaks one.
+        if (kind !== 'models-probe') {
+          settled.settledDone = true
+          inflight -= 1
+          usageUnknownCalls += 1
+        }
         return
       }
       const forwardPath = joinUpstreamPath(upstream, pathname, search)
@@ -474,19 +501,28 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
         // This branch bypasses onDone (its caller-side record would
         // duplicate the refused record above), so it settles the call's
         // accounting itself — the close handler must not double-settle.
-        settled.settledDone = true
-        inflight -= 1
-        usageUnknownCalls += 1
+        // Probes take no slot and must not corrupt call accounting.
+        if (kind !== 'models-probe') {
+          settled.settledDone = true
+          inflight -= 1
+          usageUnknownCalls += 1
+        }
       })
       // Client disconnect before the upstream body ends: the call already
       // counts, so its usage must settle too — an abort must not become an
       // accounting hole (fail-closed metering).
       response.on('close', () => {
         upstreamRequest.destroy()
-        if (!settled.settledDone) {
+        // Probes take no slot and never carry usage; only metered calls
+        // settle here, so an aborted probe cannot corrupt accounting.
+        if (!settled.settledDone && kind !== 'models-probe') {
           settled.settledDone = true
           inflight -= 1
           usageUnknownCalls += 1
+          // Conservative fail-closed charge: a client that aborts before
+          // the trailing usage chunk spends tokens nobody can count — the
+          // lane prices that risk explicitly instead of trusting the child.
+          totalTokens += config.caps.abortedCallTokenCharge ?? 0
           record({ at: new Date().toISOString(), kind: kind === 'chat-completions' ? 'chat-completions' : 'messages', status: 499, model, promptTokens: undefined, completionTokens: undefined, totalTokens: undefined, reason: 'client aborted before usage settled' })
         }
       })
@@ -601,6 +637,7 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
       totalTokens,
       usageUnknownCalls,
       cappedReason,
+      droppedRecords,
       records: [...records],
     }),
     stop: () => new Promise<void>((resolve, reject) => {

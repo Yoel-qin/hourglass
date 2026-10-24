@@ -93,7 +93,7 @@ export type { TrialCommand, TrialRequest, TrialResponse, TrialCommandResult } fr
 export { exportValidationPack, loadPack, packPathFor, verifyValidationPack } from './validation-pack.ts'
 export type { ExportPackInput, ExportedPack } from './validation-pack.ts'
 export {
-  capViolation, ensureStreamUsageOption, errorDetail, extractUsageFromJson, extractUsageFromMessagesJson,
+  capViolation, ensureStreamUsageOption, errorDetail, MAX_RECORDS, extractUsageFromJson, extractUsageFromMessagesJson,
   extractUsageFromMessagesSse, extractUsageFromSse, joinUpstreamPath, parseRequestUrl, portOf, startLlmBroker,
 } from './llm-broker.ts'
 export type { LlmBroker, LlmBrokerConfig, UsageCaps, UsageCounts, UsageRecord, UsageReport } from './llm-broker.ts'
