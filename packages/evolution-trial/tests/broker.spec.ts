@@ -37,7 +37,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-async function startFakeProxy(mode: 'ok' | 'refuse' | 'pad' | 'split' | 'stall' | 'flood'): Promise<FakeProxy> {
+async function startFakeProxy(mode: 'ok' | 'refuse' | 'pad' | 'split' | 'stall' | 'flood' | 'headonly' | 'trickle'): Promise<FakeProxy> {
   const tunneled: string[] = []
   const server: TcpServer = createTcpServer((socket: Socket) => {
     socket.once('data', (chunk: Buffer) => {
@@ -47,6 +47,18 @@ async function startFakeProxy(mode: 'ok' | 'refuse' | 'pad' | 'split' | 'stall' 
       if (mode === 'refuse' || target === null) {
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
         socket.end()
+        return
+      }
+      if (mode === 'headonly') {
+        // Status line complete, then >16KiB of header bytes with NO blank
+        // line: exercises the blank-line head cap specifically.
+        socket.write('HTTP/1.1 200 Connection Established\r\n-x: ' + 'A'.repeat(20_000))
+        return
+      }
+      if (mode === 'trickle') {
+        // Status line plus partial headers, then silence: the head stays
+        // under the cap without a blank line until the connect deadline.
+        socket.write('HTTP/1.1 200 Connection Established\r\n-x: partial')
         return
       }
       if (mode === 'stall') return // accept the CONNECT, never answer
@@ -869,6 +881,53 @@ describe('llm broker transport hardening (PR #15 persistent review)', () => {
     expect(result.text).toContain('exceeded 16KiB')
   })
 
+  it('fails a proxy reply with complete status line but no blank line past the cap', async () => {
+    const mock = await startMock({ scripted: [{ content: 'never' }] })
+    const proxy = await startFakeProxy('headonly')
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl, proxyUrl: `http://127.0.0.1:${proxy.port}` })
+    const result = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
+    expect(result.status).toBe(502)
+    expect(result.text).toContain('without a blank line')
+  })
+
+  it('waits under the cap for a trickling proxy head until the connect deadline', async () => {
+    const mock = await startMock({ scripted: [{ content: 'never' }] })
+    const proxy = await startFakeProxy('trickle')
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl, proxyUrl: `http://127.0.0.1:${proxy.port}`, upstreamTimeoutMs: 300 })
+    const result = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
+    expect(result.status).toBe(502)
+    expect(result.text).toContain('connect phase timed out')
+  })
+
+  it('records a client-aborted Messages call with the messages kind', async () => {
+    const mock = await startMock({ scripted: [{ content: 'aborted-msg', promptTokens: 3 }] })
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl, upstreamTimeoutMs: 5_000 })
+    const client = httpRequest(`${broker.baseUrl}/v1/messages`, { method: 'POST', headers: { 'content-type': 'application/json' } }, () => undefined)
+    client.on('error', () => undefined)
+    client.end(JSON.stringify({ model: 'test-model', messages: [], mockHang: true }))
+    await sleep(200)
+    client.destroy()
+    await sleep(250)
+    const report = broker.report()
+    expect(report.records.some(entry => entry.kind === 'messages' && entry.status === 499)).toBe(true)
+  })
+
+  it('skips double settlement when a streamed response dies after client abort', async () => {
+    const mock = await startMock({ scripted: [{ content: 'stream-abort' }] })
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl, upstreamTimeoutMs: 5_000 })
+    const client = httpRequest(`${broker.baseUrl}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json' } }, response => {
+      response.on('data', () => undefined)
+    })
+    client.on('error', () => undefined)
+    client.end(JSON.stringify({ model: 'test-model', messages: [], stream: true, mockStreamThenHang: true }))
+    await sleep(300)
+    client.destroy()
+    await sleep(300)
+    const report = broker.report()
+    expect(report.calls).toBe(1)
+    expect(report.records.filter(entry => entry.status === 499)).toHaveLength(1)
+  }, 8_000)
+
   it('times out a proxy that accepts the connection but never answers CONNECT', async () => {
     const mock = await startMock({ scripted: [{ content: 'never' }] })
     const proxy = await startFakeProxy('stall')
@@ -979,5 +1038,83 @@ describe('llm broker real TLS upstream (minted CA)', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+})
+
+describe('llm broker round-4 hardening (inflight bound, abort accounting, split status line)', () => {
+  it('bounds concurrent in-flight calls', async () => {
+    const mock = await startMock({ scripted: [
+      { content: 'slow1', promptTokens: 1 },
+      { content: 'slow2', promptTokens: 1 },
+    ] })
+    const broker = await startBroker({
+      upstreamBaseUrl: mock.baseUrl,
+      caps: { maxCalls: 10, maxTotalTokens: 1000, wallClockMs: 600_000, maxConcurrentCalls: 1 },
+      upstreamTimeoutMs: 5_000,
+    })
+    // mockHang holds the first call open; the second must be refused while the first is in flight.
+    const controller = new AbortController()
+    const first = fetch(`${broker.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model: 'test-model', messages: [], mockHang: true }),
+      signal: controller.signal,
+    }).catch(() => undefined)
+    await sleep(150)
+    const second = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
+    expect(second.status).toBe(429)
+    expect(second.text).toContain('max-inflight')
+    controller.abort()
+    await first
+    await sleep(150)
+    const third = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
+    expect(third.status).toBe(200)
+  }, 10_000)
+
+  it('settles accounting when the client aborts before usage lands', async () => {
+    const mock = await startMock({ scripted: [{ content: 'aborted', promptTokens: 10 }] })
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl, upstreamTimeoutMs: 5_000 })
+    // Raw client with an explicit socket destroy: fetch's abort may pool the
+    // keep-alive connection instead of closing it, hiding the disconnect.
+    const client = httpRequest(`${broker.baseUrl}/chat/completions`, { method: 'POST', headers: { 'content-type': 'application/json' } }, () => undefined)
+    client.on('error', () => undefined)
+    client.end(JSON.stringify({ model: 'test-model', messages: [], mockHang: true }))
+    await sleep(200)
+    client.destroy()
+    await sleep(250)
+    const report = broker.report()
+    expect(report.calls).toBe(1)
+    expect(report.usageUnknownCalls).toBe(1)
+    expect(report.records.some(entry => entry.status === 499 && entry.reason?.includes('client aborted'))).toBe(true)
+  }, 8_000)
+
+  it('buffers a CONNECT reply split mid-status-line', async () => {
+    const mock = await startMock({ scripted: [{ content: 'midline-ok' }] })
+    const proxy = await startFakeProxy('ok')
+    // Patch: write the reply in two pieces INSIDE the status line.
+    const server: TcpServer = createTcpServer((socket: Socket) => {
+      socket.once('data', (chunk: Buffer) => {
+        const target = /^CONNECT ([^:]+):(\d+) HTTP/.exec(chunk.toString('latin1'))
+        if (target === null) {
+          socket.destroy()
+          return
+        }
+        socket.write('HTTP/1.1 2')
+        setTimeout(() => {
+          socket.write('00 Connection Established\r\n\r\n')
+          const upstream = netConnect({ host: target[1], port: Number(target[2]) })
+          upstream.pipe(socket)
+          socket.pipe(upstream)
+        }, 30)
+      })
+    })
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))
+    const splitPort = (server.address() as { port: number }).port
+    stoppers.push(() => new Promise<void>((resolve, reject) => server.close(error => (error === undefined ? resolve() : reject(error)))))
+    void proxy
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl, proxyUrl: `http://127.0.0.1:${splitPort}` })
+    const result = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
+    expect(result.status).toBe(200)
+    expect(JSON.parse(result.text).choices[0].message.content).toBe('midline-ok')
   })
 })

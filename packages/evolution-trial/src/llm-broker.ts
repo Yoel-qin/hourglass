@@ -23,6 +23,8 @@ import { createServer, request as httpRequest, type IncomingMessage, type Server
 export interface UsageCaps {
   /** Completed chat-completions calls allowed per broker lifetime. */
   readonly maxCalls: number
+  /** Concurrent in-flight calls; bounds the token-cap burst race (usage lands only at response end). */
+  readonly maxConcurrentCalls?: number
   /** Sum of upstream-reported total tokens allowed per broker lifetime. */
   readonly maxTotalTokens: number
   /** Broker wall-clock budget in milliseconds, checked before each call. */
@@ -92,6 +94,8 @@ const DEFAULT_UPSTREAM_TIMEOUT_MS = 120_000
 const DEFAULT_MAX_BODY_BYTES = 1024 * 1024
 /** Bound on the TCP/TLS/CONNECT setup phase, independent of the request timeout. */
 const CONNECT_PHASE_TIMEOUT_MS = 15_000
+/** Default concurrent-call bound backing the token-cap race guard. */
+const DEFAULT_MAX_CONCURRENT_CALLS = 4
 
 function positiveNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
@@ -269,6 +273,15 @@ function connectThroughProxy(proxyUrl: string, target: URL, connectTimeoutMs: nu
     let head = ''
     const onData = (chunk: Buffer): void => {
       head += chunk.toString('latin1')
+      // Judge the verdict only once the status line is complete: a reply
+      // split mid-status-line must buffer, not read as a refusal.
+      if (!head.includes('\r\n')) {
+        if (head.length > 16 * 1024) {
+          socket.off('data', onData)
+          fail('proxy CONNECT reply head exceeded 16KiB without a status line')
+        }
+        return
+      }
       if (!/^HTTP\/1\.[01] 200/.test(head)) {
         socket.off('data', onData)
         fail(`proxy CONNECT refused: ${head.split('\r\n')[0]}`)
@@ -354,6 +367,7 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
   const maxBodyBytes = config.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES
   const startedAt = Date.now()
   let calls = 0
+  let inflight = 0
   let promptTokens = 0
   let completionTokens = 0
   let totalTokens = 0
@@ -390,6 +404,7 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
     model: string | undefined,
     onDone: (upstreamStatus: number, usage: UsageCounts | undefined) => void,
   ): void => {
+    const settled = { settledDone: false }
     void (async () => {
       let socket: Socket
       try {
@@ -427,22 +442,54 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
           } else {
             usage = kind === 'messages' ? extractUsageFromMessagesJson(text) : extractUsageFromJson(text)
           }
-          onDone(statusCode, usage)
+          /* v8 ignore next -- idempotence guard: the settle path runs in every
+             test; the skip side fires only when the upstream ends after a
+             client-abort settlement, a transport race that is not
+             deterministically reproducible in the loopback topology. */
+          if (!settled.settledDone) {
+            settled.settledDone = true
+            onDone(statusCode, usage)
+          }
         })
       })
       upstreamRequest.setTimeout(timeoutMs, () => upstreamRequest.destroy(new Error('upstream timeout')))
       upstreamRequest.on('error', error => {
         const detail = errorDetail(error)
+        // A destroyed response means the CLIENT went away: the close
+        // handler owns the abort settlement (status 499 record).
+        if (response.destroyed) return
         if (response.headersSent) {
           response.destroy()
-          onDone(502, undefined)
+          /* v8 ignore next -- idempotence guard: same race as above, from the
+             mid-stream upstream-error side. */
+          if (!settled.settledDone) {
+            settled.settledDone = true
+            onDone(502, undefined)
+          }
           return
         }
         record({ at: new Date().toISOString(), kind: 'refused', status: 502, model, promptTokens: undefined, completionTokens: undefined, totalTokens: undefined, reason: `upstream request failed: ${detail}` })
         response.writeHead(502, { 'content-type': 'application/json' })
         response.end(`${JSON.stringify({ error: { message: `hourglass broker: upstream request failed: ${detail}`, type: 'hourglass-broker-upstream' } })}\n`)
+        // This branch bypasses onDone (its caller-side record would
+        // duplicate the refused record above), so it settles the call's
+        // accounting itself — the close handler must not double-settle.
+        settled.settledDone = true
+        inflight -= 1
+        usageUnknownCalls += 1
       })
-      response.on('close', () => upstreamRequest.destroy())
+      // Client disconnect before the upstream body ends: the call already
+      // counts, so its usage must settle too — an abort must not become an
+      // accounting hole (fail-closed metering).
+      response.on('close', () => {
+        upstreamRequest.destroy()
+        if (!settled.settledDone) {
+          settled.settledDone = true
+          inflight -= 1
+          usageUnknownCalls += 1
+          record({ at: new Date().toISOString(), kind: kind === 'chat-completions' ? 'chat-completions' : 'messages', status: 499, model, promptTokens: undefined, completionTokens: undefined, totalTokens: undefined, reason: 'client aborted before usage settled' })
+        }
+      })
       if (body !== undefined) upstreamRequest.end(body)
       else upstreamRequest.end()
     })()
@@ -504,6 +551,7 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
         return
       }
       const violation = capViolation(config.caps, { calls, totalTokens }, Date.now() - startedAt)
+        ?? (inflight >= (config.caps.maxConcurrentCalls ?? DEFAULT_MAX_CONCURRENT_CALLS) ? 'max-inflight' : undefined)
       if (violation !== undefined) {
         if (cappedReason === undefined) cappedReason = violation
         refuse(response, 429, `hard cap reached: ${violation}`, model)
@@ -516,7 +564,9 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
       // bodies pass through untouched.
       const outbound = Buffer.from(isChat ? ensureStreamUsageOption(rawBody) : rawBody, 'utf8')
       calls += 1
+      inflight += 1
       forward(response, 'POST', incoming.pathname, incoming.search, headers, outbound, isChat ? 'chat-completions' : 'messages', model, (status, usage) => {
+        inflight -= 1
         if (usage === undefined) usageUnknownCalls += 1
         if (usage !== undefined) {
           if (usage.promptTokens !== undefined) promptTokens += usage.promptTokens

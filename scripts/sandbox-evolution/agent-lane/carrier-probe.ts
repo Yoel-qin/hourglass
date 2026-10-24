@@ -55,7 +55,7 @@ interface ProbeReport {
   readonly ok: boolean
   readonly blocked: string[]
   readonly p1: { readonly childPids: readonly number[]; readonly homeEntries: number }
-  readonly p2: { readonly ledgerDenied: boolean; readonly netDecisions: number; readonly serverHits: number }
+  readonly p2: { readonly netDecisions: number; readonly serverHits: number; readonly canaryLeaked: boolean }
   readonly p3: { readonly fdBefore: number; readonly fdAfter: number }
   readonly p4: { readonly skillInRequest: boolean }
   readonly brokerCalls: number
@@ -168,8 +168,10 @@ async function main(): Promise<void> {
   writeFileSync(join(canaryDir, 'canary.txt'), `${CANARY_TEXT}\n`, 'utf8')
 
   const ip = containerIp()
-  const probeCommand = `cat ${join(canaryDir, 'canary.txt')}; ` +
-    `printf '%s' '${CANARY_TEXT}' | curl --data-binary @- http://${ip}:${recorder.port}/probe --max-time 3; true`
+  // The leak capture makes the read mask falsifiable at content level: if
+  // hourglass-read's tmpfs mask fails, leak.txt CONTAINS the canary.
+  const probeCommand = `cat ${join(canaryDir, 'canary.txt')} > ${join(workspace, 'leak.txt')} 2>/dev/null; ` +
+    `printf '%s' '${CANARY_TEXT}' | curl --data-binary @- http://${ip}:${recorder.port}/probe --max-time 3 > ${join(workspace, 'curl-out.txt')} 2>&1; true`
 
   const ledgerPath = join(root, 'child-ledger.jsonl')
   const netDecisionLog = join(root, 'child-net-decisions.jsonl')
@@ -356,24 +358,31 @@ async function main(): Promise<void> {
   if (p1.childPids.length === 0) blocked.push('P1: no child PID ever referenced the child home (carrier not independent)')
   if (p1.homeEntries === 0) blocked.push('P1: child home stayed empty (profile never materialized)')
 
-  // P2: child-side denial evidence from the child's own artifacts.
-  const ledgerText = existsSync(ledgerPath) ? readFileSync(ledgerPath, 'utf8') : ''
+  // P2: child-side confinement evidence, content-level (no substring
+  // shortcuts): the net plugin's own decision log must carry deny-all
+  // entries, the server must have seen NOTHING, and the leak capture must
+  // NOT contain the canary. The ledger honestly records command outcomes —
+  // a masked read surfaces as an ordinary failure, not a structured denial —
+  // so the read-mask evidence is the file, not the ledger.
   const netDecisions = existsSync(netDecisionLog) ? readFileSync(netDecisionLog, 'utf8').trim().split('\n').filter(line => line !== '').length : 0
+  const leakText = existsSync(join(workspace, 'leak.txt')) ? readFileSync(join(workspace, 'leak.txt'), 'utf8') : ''
   const p2 = {
-    ledgerDenied: ledgerText.includes('"denied":true') || ledgerText.includes('denied'),
     netDecisions,
     serverHits: recorder.hits.length,
+    canaryLeaked: leakText.includes(CANARY_TEXT),
   }
-  if (!p2.ledgerDenied) blocked.push('P2: child ledger shows no denial (confine not observed child-side)')
   if (p2.netDecisions === 0) blocked.push('P2: no net decision log entries (net plugin not observed child-side)')
   if (p2.serverHits !== 0) blocked.push(`P2: recorder saw ${p2.serverHits} hit(s) — egress escaped confinement`)
+  if (p2.canaryLeaked) blocked.push('P2: canary text reached the leak capture — read mask failed child-side')
 
   // P3: repeated one-shot cycles without parent fd growth.
   const p3 = { fdBefore, fdAfter }
   if (fdAfter > fdBefore + 8) blocked.push(`P3: parent fds grew from ${fdBefore} to ${fdAfter} across ${cycles} cycles`)
 
   // P4: skill content reached the model request through the snapshot only.
-  const skillInRequest = mock.requests.some(request => request.messageText.includes(SKILL_MARKER) || request.messageText.includes('hourglass-carrier-probe'))
+  // Marker ONLY: the skill NAME alone (a catalog listing) is not evidence
+  // that the snapshot BODY reached the model.
+  const skillInRequest = mock.requests.some(request => request.messageText.includes(SKILL_MARKER))
   if (!skillInRequest) blocked.push('P4: skill content never appeared in any model request (snapshot path not observed)')
 
   const brokerReport = broker.report()
@@ -391,12 +400,12 @@ async function main(): Promise<void> {
   }
   writeFileSync(join(outDir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8')
   console.log(`[agent-carrier] ok=${report.ok} cycles=${cycles} childPids=${p1.childPids.join(',')} ` +
-    `ledgerDenied=${p2.ledgerDenied} netDecisions=${p2.netDecisions} serverHits=${p2.serverHits} ` +
+    `netDecisions=${p2.netDecisions} serverHits=${p2.serverHits} canaryLeaked=${p2.canaryLeaked} ` +
     `fds=${fdBefore}->${fdAfter} skillInRequest=${skillInRequest} brokerCalls=${brokerReport.calls}`)
   for (const reason of blocked) console.log(`[agent-carrier] BLOCKED: ${reason}`)
   console.log('[agent-carrier] broker records:', JSON.stringify(brokerReport.records.map(r => ({ kind: r.kind, status: r.status, model: r.model, reason: r.reason }))))
   console.log('[agent-carrier] mock requests:', JSON.stringify(mock.requests.map(r => ({ model: r.model, nTools: r.nTools, stream: r.stream, auth: r.authorization, toolNames: r.toolNames }))))
-  if (report.ok) {
+  if (report.ok && process.env.CARRIER_KEEP !== '1') {
     rmSync(root, { recursive: true, force: true })
   } else {
     console.log(`[agent-carrier] artifacts kept for inspection: ${root}`)
