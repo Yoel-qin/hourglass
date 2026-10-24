@@ -3,6 +3,13 @@ name: PR Agent
 # PR-Agent 以 GitHub Action 方式运行：PR 打开/更新时自动 describe/review/improve，
 # 在 PR 评论里输入 /review /describe /improve /ask "..." 等命令可手动触发。
 # 用法文档: https://docs.pr-agent.ai/installation/github/
+#
+# 评论身份：优先用 the-pr-agent-bot GitHub App 的安装令牌（评论显示为
+# the-pr-agent-bot[bot]）；APP_ID/PRIVATE_KEY secrets 未配置时回退 workflow
+# 内置 GITHUB_TOKEN（评论显示为 github-actions[bot]），流水线不会中断。
+#
+# 私钥边界（PR #6 评审意见）：App 凭据只进自有 step 的 env，绝不放 job 级
+# env——第三方 action（the-pr-agent/pr-agent@main）不得接触 PRIVATE_KEY。
 
 on:
   pull_request_target:
@@ -20,6 +27,38 @@ jobs:
       pull-requests: write
     name: Run pr agent on every pull request, respond to user comments
     steps:
+      - name: Check GitHub App credentials
+        id: app_check
+        env:
+          APP_ID: ${{ secrets.APP_ID }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+        run: |
+          if [[ -n "$APP_ID" && -n "$PRIVATE_KEY" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Generate the-pr-agent-bot installation token
+        id: app_token
+        if: ${{ steps.app_check.outputs.configured == 'true' }}
+        # 权限不匹配（422）、私钥过期等任何失败都降级到内置 token，
+        # 不让评审流水线整体变红；降级由下一个 step 显式告警，可观测。
+        continue-on-error: true
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.PRIVATE_KEY }}
+          # 令牌限定到当前仓库（而非 App 安装的全部仓库）
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          # 最小权限：安装令牌只继承评审所需的三项，而非 App 全部权限
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
+      - name: Report app-token fallback
+        if: ${{ steps.app_check.outputs.configured == 'true' && !steps.app_token.outputs.token }}
+        run: |
+          echo "::warning::the-pr-agent-bot token generation failed — falling back to the built-in GITHUB_TOKEN (comments will appear as github-actions[bot]). Check the APP_ID/PRIVATE_KEY secrets and the app's installed permissions (need contents:read, issues:write, pull-requests:write)."
       - name: PR Agent action step
         id: pragent
         uses: the-pr-agent/pr-agent@main
@@ -27,7 +66,8 @@ jobs:
           # DeepSeek（OpenAI 兼容端点）：key 放在仓库 secret OPENAI_KEY 里
           # 获取：platform.deepseek.com → API Keys → 创建/复制
           OPENAI_KEY: ${{ secrets.OPENAI_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # the-pr-agent-bot 安装令牌；未配置 App 时回退内置 token
+          GITHUB_TOKEN: ${{ steps.app_token.outputs.token || github.token }}
           OPENAI__API_BASE: https://api.deepseek.com
           # 模型 id 以 DeepSeek 报错信息/控制台为准：deepseek-flash（即 V4.1 Flash）、deepseek-v4-pro
           CONFIG__MODEL: openai/deepseek-flash
@@ -40,5 +80,6 @@ jobs:
           GITHUB_ACTION_CONFIG__AUTO_DESCRIBE: 'true'
           GITHUB_ACTION_CONFIG__AUTO_REVIEW: 'true'
           GITHUB_ACTION_CONFIG__AUTO_IMPROVE: 'true'
-          # 个人仓库：单个工具失败不要把 PR 状态打成红叉
-          GITHUB_ACTION_CONFIG__FAIL_ON_TOOL_ERRORS: 'false'
+          # 门禁语义（2026-10-19 起）：工具失败必须把 PR 打成红叉——
+          # 合并前要求本流水线全绿；失败只看 Actions 状态，不再埋在评论里。
+          GITHUB_ACTION_CONFIG__FAIL_ON_TOOL_ERRORS: 'true'
