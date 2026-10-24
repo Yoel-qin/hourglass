@@ -76,6 +76,8 @@ export interface MockLlmRequest {
   readonly includeUsage: boolean
   readonly authorization: string | undefined
   readonly acceptEncoding: string | undefined
+  /** Received Host header (transport truthfulness assertions). */
+  readonly host: string | undefined
   readonly mockHang: boolean
   readonly mockDropStream: boolean
   readonly mockStreamThenHang: boolean
@@ -271,6 +273,7 @@ export async function startMockLlmServer(config: MockLlmConfig, port = 0): Promi
         includeUsage: streamOptions.include_usage === true,
         authorization,
         acceptEncoding: request.headers['accept-encoding'],
+        host: request.headers.host,
         mockHang: parsed.mockHang === true,
         mockDropStream: parsed.mockDropStream === true,
         mockStreamThenHang: parsed.mockStreamThenHang === true,

@@ -88,6 +88,8 @@ export interface LlmBroker {
 
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 120_000
 const DEFAULT_MAX_BODY_BYTES = 1024 * 1024
+/** Bound on the TCP/TLS/CONNECT setup phase, independent of the request timeout. */
+const CONNECT_PHASE_TIMEOUT_MS = 15_000
 
 function positiveNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined
@@ -243,46 +245,82 @@ export function portOf(target: URL): number {
 }
 
 /** CONNECT tunnel through a forward proxy, byte-transparent. */
-function connectThroughProxy(proxyUrl: string, target: URL): Promise<Socket> {
+function connectThroughProxy(proxyUrl: string, target: URL, connectTimeoutMs: number): Promise<Socket> {
   return new Promise<Socket>((resolve, reject) => {
     const proxy = new URL(proxyUrl)
     const socket = netConnect({ host: proxy.hostname, port: Number(proxy.port) || 80 })
+    // The whole setup phase — TCP connect, CONNECT exchange — is bounded: a
+    // proxy or firewall that accepts the connection but stays silent must not
+    // hang the broker (the wall-clock cap only re-checks at admission).
+    const deadline = setTimeout(() => {
+      socket.destroy()
+      reject(new Error(`proxy connect phase timed out after ${connectTimeoutMs}ms`))
+    }, connectTimeoutMs)
     const fail = (reason: string): void => {
+      clearTimeout(deadline)
       socket.destroy()
       reject(new Error(reason))
     }
     socket.on('error', error => fail(`proxy connection failed: ${errorDetail(error)}`))
-    socket.once('data', (chunk: Buffer) => {
-      const head = chunk.toString('latin1')
+    // The CONNECT reply may span several TCP segments: buffer until the
+    // blank line, then hand back anything past it as tunnel payload.
+    let head = ''
+    const onData = (chunk: Buffer): void => {
+      head += chunk.toString('latin1')
       if (!/^HTTP\/1\.[01] 200/.test(head)) {
+        socket.off('data', onData)
         fail(`proxy CONNECT refused: ${head.split('\r\n')[0]}`)
         return
       }
-      // Bytes after the blank line already belong to the tunnel; put them back.
       const separator = head.indexOf('\r\n\r\n')
-      if (separator >= 0 && chunk.length > separator + 4) socket.unshift(chunk.subarray(separator + 4))
+      if (separator < 0) {
+        if (head.length > 16 * 1024) {
+          socket.off('data', onData)
+          fail('proxy CONNECT reply head exceeded 16KiB without a blank line')
+        }
+        return
+      }
+      socket.off('data', onData)
+      clearTimeout(deadline)
+      const leftover = chunk.subarray(chunk.length - (head.length - separator - 4))
+      if (leftover.length > 0) socket.unshift(leftover)
       resolve(socket)
-    })
+    }
+    socket.on('data', onData)
     socket.write(`CONNECT ${target.hostname}:${portOf(target)} HTTP/1.1\r\nHost: ${target.hostname}:${portOf(target)}\r\n\r\n`)
   })
 }
 
 /**
- * Transport for one upstream request. Plain direct HTTP returns undefined so
- * the caller lets node:http connect by itself; every other shape returns a
- * ready socket (possibly TLS over a tunnel).
+ * Transport for one upstream request: a ready socket for EVERY shape (plain
+ * direct HTTP included — node's request-timeout does not bound the connect
+ * phase, so a black-holed upstream would hang the broker). Possibly TLS over
+ * a CONNECT tunnel. The whole setup phase is bounded by `connectTimeoutMs`.
  */
-async function openUpstreamConnection(target: URL, proxyUrl: string | undefined): Promise<Socket | undefined> {
-  if (proxyUrl === undefined && target.protocol === 'http:') return undefined
+async function openUpstreamConnection(target: URL, proxyUrl: string | undefined, connectTimeoutMs: number): Promise<Socket> {
   const raw = proxyUrl === undefined
-    ? netConnect({ host: target.hostname, port: portOf(target) })
-    : await connectThroughProxy(proxyUrl, target)
+    ? await new Promise<Socket>((resolve, reject) => {
+      const socket = netConnect({ host: target.hostname, port: portOf(target) })
+      const deadline = setTimeout(() => {
+        socket.destroy()
+        reject(new Error(`upstream connect timed out after ${connectTimeoutMs}ms`))
+      }, connectTimeoutMs)
+      socket.on('connect', () => {
+        clearTimeout(deadline)
+        resolve(socket)
+      })
+      socket.on('error', error => {
+        clearTimeout(deadline)
+        reject(new Error(`upstream connection failed: ${errorDetail(error)}`))
+      })
+    })
+    : await connectThroughProxy(proxyUrl, target, connectTimeoutMs)
   if (target.protocol !== 'https:') return raw
   return tlsConnect({
     socket: raw,
     servername: target.hostname,
     rejectUnauthorized: true,
-    handshakeTimeout: 3000,
+    handshakeTimeout: connectTimeoutMs,
   })
 }
 
@@ -338,9 +376,9 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
     onDone: (upstreamStatus: number, usage: UsageCounts | undefined) => void,
   ): void => {
     void (async () => {
-      let socket: Socket | undefined
+      let socket: Socket
       try {
-        socket = await openUpstreamConnection(upstream, config.proxyUrl)
+        socket = await openUpstreamConnection(upstream, config.proxyUrl, Math.min(timeoutMs, CONNECT_PHASE_TIMEOUT_MS))
       } catch (error) {
         const reason = errorDetail(error)
         record({ at: new Date().toISOString(), kind: 'refused', status: 502, model, promptTokens: undefined, completionTokens: undefined, totalTokens: undefined, reason })
@@ -349,9 +387,11 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
         return
       }
       const forwardPath = joinUpstreamPath(upstream, pathname, search)
-      const options = socket === undefined
-        ? { host: upstream.hostname, port: portOf(upstream), method, path: forwardPath, headers }
-        : { createConnection: () => socket, method, path: forwardPath, headers }
+      // createConnection supplies the (already connected) transport while
+      // host/port keep node's default Host header truthful for the upstream
+      // vhost (a socket-only options object would send Host: localhost and a
+      // real provider answers 403).
+      const options = { host: upstream.hostname, port: portOf(upstream), createConnection: () => socket, method, path: forwardPath, headers }
       const upstreamRequest = httpRequest(options, upstreamRes => {
         // node delivers ClientResponse only after status line + headers, so
         // statusCode is always present here; the cast keeps the coverage gate
