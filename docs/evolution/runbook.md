@@ -59,8 +59,18 @@ docker run --rm --privileged -v "$(pwd -W)/reports:/opt/reports" \
    证据的一部分，口头批准不算）。
 4. **手工应用**：将封存工件内容（candidate store 中 `artifacts/<sha>.txt`）
    写入目标 `SKILL.md`；写入后再次 `sha256sum` 核对等于 `artifactSha256`。
-5. **留痕**：把应用结果追加进 `evolution-journal.jsonl`（kind:
-   `manually-applied`，引用 candidateId 与前后哈希）。
+5. **留痕**：通过 journal API 记录应用事件——**绝不手工编辑
+   `evolution-journal.jsonl`**（它是 hash-chain，手工行会断链并被
+   `verify()` 判为篡改）。在 DSH workspace 内执行：
+   ```bash
+   node --experimental-strip-types -e "
+     import { EvolutionJournal } from '@hourglass/evolution-trial/src/evolution-journal.ts'
+     new EvolutionJournal('<journal路径>').append('manually-applied',
+       { candidateId: '<候选ID>' },
+       { beforeSha256: '<应用前哈希>', afterSha256: '<应用后哈希>' })
+   "
+   ```
+   （journal 路径见流水线输出目录；append 会自动接链。）
 
 ## 5. 回退
 

@@ -29,9 +29,19 @@ import { buildTrialConfinement, runTrial } from '@hourglass/evolution-trial/src/
 
 const BASE_DIR = fileURLToPath(new URL('.', import.meta.url))
 
-const CYCLES = Number.parseInt(process.env['EVOLUTION_NIGHTLY_CYCLES'] ?? '50', 10)
-const JOURNAL_APPENDS = Number.parseInt(process.env['EVOLUTION_JOURNAL_APPENDS'] ?? '1000', 10)
-const DETERMINISM_RUNS = Number.parseInt(process.env['EVOLUTION_DETERMINISM_RUNS'] ?? '3', 10)
+/** Parse a required positive integer env var; fail fast on garbage (PR #9). */
+function positiveIntEnv(name: string, fallback: string): number {
+  const raw = process.env[name] ?? fallback
+  const value = Number.parseInt(raw, 10)
+  if (!Number.isInteger(value) || value < 1 || String(value) !== raw.trim()) {
+    throw new Error(`invalid ${name}: expected a positive integer, got ${JSON.stringify(raw)}`)
+  }
+  return value
+}
+
+const CYCLES = positiveIntEnv('EVOLUTION_NIGHTLY_CYCLES', '50')
+const JOURNAL_APPENDS = positiveIntEnv('EVOLUTION_JOURNAL_APPENDS', '1000')
+const DETERMINISM_RUNS = positiveIntEnv('EVOLUTION_DETERMINISM_RUNS', '3')
 
 interface PhaseResult {
   readonly phase: string
@@ -165,31 +175,35 @@ async function phaseConcurrency(root: string): Promise<PhaseResult> {
     confinement: buildTrialConfinement(),
   })
   const [a, b] = await Promise.all([run('a', 'ALPHA-MARKER'), run('b', 'BETA-MARKER')])
-  if (!a.ok || !b.ok) {
-    return {
-      phase: 'concurrency',
-      ok: false,
-      detail: {
-        aOk: a.ok, aError: a.error, bOk: b.ok, bError: b.error,
-      },
+  // Marker reads are defensive like phaseLifecycle's: a missing file must
+  // yield ok:false with diagnostics, never crash the drill before its report
+  // is written (PR #9 review finding).
+  const readMarker = (name: string): string | undefined => {
+    try {
+      return readFileSync(join(root, `concurrent-ws-${name}`, 'marker.txt'), 'utf8').trim()
+    } catch {
+      return undefined
     }
   }
-  const aMarker = readFileSync(join(root, 'concurrent-ws-a', 'marker.txt'), 'utf8').trim()
-  const bMarker = readFileSync(join(root, 'concurrent-ws-b', 'marker.txt'), 'utf8').trim()
-  const ok = a.results[0]?.exitCode === 0 && b.results[0]?.exitCode === 0
+  const aMarker = readMarker('a')
+  const bMarker = readMarker('b')
+  const distinctPids = a.driverPid !== b.driverPid
+  const ok = a.ok && b.ok
+    && a.results[0]?.exitCode === 0 && b.results[0]?.exitCode === 0
     && aMarker === 'ALPHA-MARKER' && bMarker === 'BETA-MARKER'
+    && distinctPids
   return {
     phase: 'concurrency',
     ok,
-    detail: { aOk: a.ok, bOk: b.ok, aMarker, bMarker, distinctPids: a.driverPid !== b.driverPid },
+    detail: {
+      aOk: a.ok, aError: a.error, bOk: b.ok, bError: b.error,
+      aMarker, bMarker, distinctPids,
+    },
   }
 }
 
 /** Phase 4: full gate pipeline verdict must be deterministic across runs. */
 function phaseDeterminism(outDir: string): PhaseResult {
-  if (DETERMINISM_RUNS < 1) {
-    return { phase: 'determinism', ok: true, detail: { runs: 0, skipped: true } }
-  }
   const runner = resolveRunner()
   const verdicts: string[] = []
   for (let index = 0; index < DETERMINISM_RUNS; index += 1) {
@@ -198,8 +212,14 @@ function phaseDeterminism(outDir: string): PhaseResult {
       ['--experimental-strip-types', runner, `--out=${join(outDir, `determinism-${index}`)}`],
       { encoding: 'utf8', timeout: 600_000 },
     )
+    // Accept a verdict only from a clean exit: a timed-out or failed run's
+    // truncated stdout must not be mined for a stale "decision=" (PR #9).
+    if (result.status !== 0) {
+      verdicts.push(`run-failed:exit=${result.status}:signal=${String(result.signal)}`)
+      continue
+    }
     const match = /decision=(\w+)/.exec(result.stdout ?? '')
-    verdicts.push(match?.[1] ?? `run-failed:exit=${result.status}`)
+    verdicts.push(match?.[1] ?? 'no-decision-in-output')
   }
   const distinct = [...new Set(verdicts)]
   return {
