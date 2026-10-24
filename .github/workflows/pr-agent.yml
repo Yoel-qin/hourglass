@@ -41,6 +41,9 @@ jobs:
       - name: Generate the-pr-agent-bot installation token
         id: app_token
         if: ${{ steps.app_check.outputs.configured == 'true' }}
+        # 权限不匹配（422）、私钥过期等任何失败都降级到内置 token，
+        # 不让评审流水线整体变红；降级由下一个 step 显式告警，可观测。
+        continue-on-error: true
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ secrets.APP_ID }}
@@ -49,6 +52,10 @@ jobs:
           permission-contents: read
           permission-issues: write
           permission-pull-requests: write
+      - name: Report app-token fallback
+        if: ${{ steps.app_check.outputs.configured == 'true' && !steps.app_token.outputs.token }}
+        run: |
+          echo "::warning::the-pr-agent-bot token generation failed — falling back to the built-in GITHUB_TOKEN (comments will appear as github-actions[bot]). Check the APP_ID/PRIVATE_KEY secrets and the app's installed permissions (need contents:read, issues:write, pull-requests:write)."
       - name: PR Agent action step
         id: pragent
         uses: the-pr-agent/pr-agent@main
