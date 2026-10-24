@@ -357,7 +357,10 @@ export async function startMockLlmServer(config: MockLlmConfig, port = 0): Promi
       })}\n`)
     })
   })
-  await new Promise<void>(resolve => server.listen(port, '127.0.0.1', resolve))
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject) // node always hands an Error here
+    server.listen(port, '127.0.0.1', () => resolve())
+  })
   // A TCP listen that resolved always yields an AddressInfo; the cast keeps
   // the coverage gate free of an unreachable unix-socket branch.
   const address = server.address() as { port: number }

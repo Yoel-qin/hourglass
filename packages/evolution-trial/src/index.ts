@@ -94,7 +94,7 @@ export { exportValidationPack, loadPack, packPathFor, verifyValidationPack } fro
 export type { ExportPackInput, ExportedPack } from './validation-pack.ts'
 export {
   capViolation, ensureStreamUsageOption, errorDetail, extractUsageFromJson, extractUsageFromMessagesJson,
-  extractUsageFromMessagesSse, extractUsageFromSse, parseRequestUrl, portOf, startLlmBroker,
+  extractUsageFromMessagesSse, extractUsageFromSse, joinUpstreamPath, parseRequestUrl, portOf, startLlmBroker,
 } from './llm-broker.ts'
 export type { LlmBroker, LlmBrokerConfig, UsageCaps, UsageCounts, UsageRecord, UsageReport } from './llm-broker.ts'
 export { pickArgumentProperty, startMockLlmServer } from './mock-llm-server.ts'

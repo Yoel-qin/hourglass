@@ -45,6 +45,8 @@ export interface LlmBrokerConfig {
   readonly port?: number
   /** Upstream request timeout in milliseconds, default 120000. */
   readonly upstreamTimeoutMs?: number
+  /** PEM of an extra CA trusted for the upstream TLS handshake (self-hosted gateways). */
+  readonly trustedCaPem?: string
   /** Request body size ceiling in bytes, default 1 MiB. */
   readonly maxBodyBytes?: number
 }
@@ -297,35 +299,45 @@ function connectThroughProxy(proxyUrl: string, target: URL, connectTimeoutMs: nu
  * phase, so a black-holed upstream would hang the broker). Possibly TLS over
  * a CONNECT tunnel. The whole setup phase is bounded by `connectTimeoutMs`.
  */
-async function openUpstreamConnection(target: URL, proxyUrl: string | undefined, connectTimeoutMs: number): Promise<Socket> {
-  const raw = proxyUrl === undefined
-    ? await new Promise<Socket>((resolve, reject) => {
-      const socket = netConnect({ host: target.hostname, port: portOf(target) })
-      const deadline = setTimeout(() => {
-        socket.destroy()
-        reject(new Error(`upstream connect timed out after ${connectTimeoutMs}ms`))
-      }, connectTimeoutMs)
-      socket.on('connect', () => {
-        clearTimeout(deadline)
-        resolve(socket)
-      })
-      socket.on('error', error => {
-        clearTimeout(deadline)
-        reject(new Error(`upstream connection failed: ${errorDetail(error)}`))
-      })
+type UpstreamTransport = (target: URL, proxyUrl: string | undefined, connectTimeoutMs: number, trustedCaPem: string | undefined) => Promise<Socket>
+
+async function openUpstreamPlain(target: URL, proxyUrl: string | undefined, connectTimeoutMs: number, _trustedCaPem: string | undefined): Promise<Socket> {
+  if (proxyUrl !== undefined) return connectThroughProxy(proxyUrl, target, connectTimeoutMs)
+  return new Promise<Socket>((resolve, reject) => {
+    const socket = netConnect({ host: target.hostname, port: portOf(target) })
+    const deadline = setTimeout(() => {
+      socket.destroy()
+      reject(new Error(`upstream connect timed out after ${connectTimeoutMs}ms`))
+    }, connectTimeoutMs)
+    socket.on('connect', () => {
+      clearTimeout(deadline)
+      resolve(socket)
     })
-    : await connectThroughProxy(proxyUrl, target, connectTimeoutMs)
-  if (target.protocol !== 'https:') return raw
+    socket.on('error', error => {
+      clearTimeout(deadline)
+      reject(new Error(`upstream connection failed: ${errorDetail(error)}`))
+    })
+  })
+}
+
+async function openUpstreamTls(target: URL, proxyUrl: string | undefined, connectTimeoutMs: number, trustedCaPem: string | undefined): Promise<Socket> {
+  const raw = await openUpstreamPlain(target, proxyUrl, connectTimeoutMs, trustedCaPem)
   return tlsConnect({
     socket: raw,
     servername: target.hostname,
     rejectUnauthorized: true,
     handshakeTimeout: connectTimeoutMs,
+    ...trustedCaPem === undefined ? {} : { ca: [trustedCaPem] },
   })
 }
 
-function joinUpstreamPath(base: URL, pathname: string, search: string): string {
+export function joinUpstreamPath(base: URL, pathname: string, search: string): string {
   const baseDir = base.pathname.replace(/\/+$/u, '')
+  // The child may already carry the base's version prefix (the DSH adapter
+  // posts /v1/messages against a base of .../v1): never concatenate it twice.
+  if (baseDir === '' || pathname === baseDir || pathname.startsWith(`${baseDir}/`)) {
+    return `${pathname}${search}`
+  }
   return `${baseDir}${pathname}${search}`
 }
 
@@ -336,6 +348,9 @@ function joinUpstreamPath(base: URL, pathname: string, search: string): string {
 export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: string): Promise<LlmBroker> {
   const upstream = new URL(config.upstreamBaseUrl)
   const timeoutMs = config.upstreamTimeoutMs ?? DEFAULT_UPSTREAM_TIMEOUT_MS
+  // Picked once at startup: keeps the request hot path branch-free (both
+  // sides of the pick are exercised across the http/https broker suites).
+  const upstreamTransport: UpstreamTransport = upstream.protocol === 'https:' ? openUpstreamTls : openUpstreamPlain
   const maxBodyBytes = config.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES
   const startedAt = Date.now()
   let calls = 0
@@ -378,7 +393,7 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
     void (async () => {
       let socket: Socket
       try {
-        socket = await openUpstreamConnection(upstream, config.proxyUrl, Math.min(timeoutMs, CONNECT_PHASE_TIMEOUT_MS))
+        socket = await upstreamTransport(upstream, config.proxyUrl, Math.min(timeoutMs, CONNECT_PHASE_TIMEOUT_MS), config.trustedCaPem)
       } catch (error) {
         const reason = errorDetail(error)
         record({ at: new Date().toISOString(), kind: 'refused', status: 502, model, promptTokens: undefined, completionTokens: undefined, totalTokens: undefined, reason })
@@ -506,7 +521,10 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
         if (usage !== undefined) {
           if (usage.promptTokens !== undefined) promptTokens += usage.promptTokens
           if (usage.completionTokens !== undefined) completionTokens += usage.completionTokens
-          if (usage.totalTokens !== undefined) totalTokens += usage.totalTokens
+          // Fail-closed budget: providers that omit total_tokens must not
+          // leave the cap at zero forever — derive it from the parts (a
+          // present usage object always carries at least one field).
+          totalTokens += usage.totalTokens ?? (usage.promptTokens ?? 0) + (usage.completionTokens ?? 0)
         }
         record({ at: new Date().toISOString(), kind: isChat ? 'chat-completions' : 'messages', status, model, promptTokens: usage?.promptTokens, completionTokens: usage?.completionTokens, totalTokens: usage?.totalTokens, reason: undefined })
       })
@@ -514,7 +532,12 @@ export async function startLlmBroker(config: LlmBrokerConfig, usageLogPath?: str
   })
 
   const host = config.host ?? '127.0.0.1'
-  await new Promise<void>(resolve => server.listen(config.port ?? 0, host, resolve))
+  await new Promise<void>((resolve, reject) => {
+    // A taken port or invalid host must reject the start call, never escape
+    // as an unhandled 'error' event that kills the host process.
+    server.once('error', reject) // node always hands an Error here
+    server.listen(config.port ?? 0, host, () => resolve())
+  })
   // A TCP listen that resolved always yields an AddressInfo; the cast keeps
   // the coverage gate free of an unreachable unix-socket branch.
   const address = server.address() as { port: number }

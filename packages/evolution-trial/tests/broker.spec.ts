@@ -1,8 +1,10 @@
 import { connect as netConnect, createServer as createTcpServer, type Server as TcpServer, type Socket } from 'node:net'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { request as httpRequest } from 'node:http'
+import { request as httpRequest, type IncomingMessage, type ServerResponse } from 'node:http'
+import { createServer as createHttpsServer } from 'node:https'
+import { spawnSync } from 'node:child_process'
 import { afterAll, describe, expect, it } from 'vitest'
 import {
   capViolation,
@@ -12,6 +14,7 @@ import {
   extractUsageFromMessagesJson,
   extractUsageFromMessagesSse,
   extractUsageFromSse,
+  joinUpstreamPath,
   parseRequestUrl,
   portOf,
   startLlmBroker,
@@ -206,7 +209,7 @@ describe('llm broker (loopback mock upstream)', () => {
     const second = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
     expect(first.status).toBe(200)
     expect(second.status).toBe(200)
-    expect(broker.report()).toMatchObject({ calls: 2, promptTokens: 3, completionTokens: 4, totalTokens: 0, usageUnknownCalls: 0 })
+    expect(broker.report()).toMatchObject({ calls: 2, promptTokens: 3, completionTokens: 4, totalTokens: 7, usageUnknownCalls: 0 })
   })
 
   it('refuses non-allowlisted models and unknown paths before touching the upstream', async () => {
@@ -881,5 +884,100 @@ describe('llm broker transport hardening (PR #15 persistent review)', () => {
     const result = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
     expect(result.status).toBe(502)
     expect(result.text).toContain('connect timed out')
+  })
+})
+
+describe('llm broker fail-closed accounting and path joining (PR #15 review round 3)', () => {
+  it('derives the effective total when the upstream omits total_tokens', async () => {
+    const mock = await startMock({
+      scripted: [
+        { content: 'a', rawUsage: { prompt_tokens: 3 } },
+        { content: 'b', rawUsage: { completion_tokens: 4 } },
+        { content: 'c', promptTokens: 5 },
+      ],
+    })
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl, caps: { maxCalls: 10, maxTotalTokens: 999, wallClockMs: 600_000 } })
+    for (let index = 0; index < 3; index += 1) {
+      const result = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
+      expect(result.status).toBe(200)
+    }
+    expect(broker.report()).toMatchObject({ calls: 3, promptTokens: 8, completionTokens: 4, totalTokens: 12, usageUnknownCalls: 0 })
+  })
+
+  it('trips the token cap on derived totals alone', async () => {
+    const mock = await startMock({ scripted: [{ content: 'x', rawUsage: { prompt_tokens: 40 } }, { content: 'y', rawUsage: { prompt_tokens: 40 } }] })
+    const broker = await startBroker({ upstreamBaseUrl: mock.baseUrl, caps: { maxCalls: 10, maxTotalTokens: 50, wallClockMs: 600_000 } })
+    const first = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
+    expect(first.status).toBe(200)
+    const second = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
+    expect(second.status).toBe(200)
+    const third = await post(broker, '/chat/completions', { model: 'test-model', messages: [] })
+    expect(third.status).toBe(429)
+    expect(broker.report().cappedReason).toBe('max-tokens')
+  })
+
+  it('joinUpstreamPath never duplicates the base version prefix', () => {
+    const base = new URL('https://api.example.com/v1')
+    expect(joinUpstreamPath(base, '/v1/messages', '')).toBe('/v1/messages')
+    expect(joinUpstreamPath(base, '/chat/completions', '')).toBe('/v1/chat/completions')
+    expect(joinUpstreamPath(new URL('https://api.example.com'), '/v1/messages', '?x=1')).toBe('/v1/messages?x=1')
+    expect(joinUpstreamPath(new URL('https://api.example.com/v1/'), '/v1/models', '')).toBe('/v1/models')
+  })
+
+  it('rejects instead of crashing when the port is already taken', async () => {
+    const mock = await startMock({ scripted: [] })
+    const first = await startLlmBroker({
+      upstreamBaseUrl: mock.baseUrl,
+      modelAllowlist: ['test-model'],
+      caps: { maxCalls: 1, maxTotalTokens: 1, wallClockMs: 1 },
+      host: '127.0.0.1',
+      port: 0,
+    })
+    const port = first.port
+    await expect(startLlmBroker({
+      upstreamBaseUrl: mock.baseUrl,
+      modelAllowlist: ['test-model'],
+      caps: { maxCalls: 1, maxTotalTokens: 1, wallClockMs: 1 },
+      host: '127.0.0.1',
+      port,
+    })).rejects.toThrow()
+    await expect(startMockLlmServer({ scripted: [] }, port)).rejects.toThrow()
+    await first.stop()
+  })
+})
+
+describe('llm broker real TLS upstream (minted CA)', () => {
+  it('completes a trusted https round trip and meters it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'evo-tls-'))
+    try {
+      const run = (args: string[]): void => {
+        const result = spawnSync('openssl', args, { cwd: dir, encoding: 'utf8' })
+        if (result.status !== 0) throw new Error(`openssl ${args[0]} failed: ${result.stderr}`)
+      }
+      run(['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'ca.key', '-out', 'ca.crt', '-subj', '/CN=TestCA', '-days', '1'])
+      run(['req', '-newkey', 'rsa:2048', '-nodes', '-keyout', 'srv.key', '-out', 'srv.csr', '-subj', '/CN=127.0.0.1'])
+      writeFileSync(join(dir, 'san.cnf'), 'subjectAltName=IP:127.0.0.1\n')
+      run(['x509', '-req', '-in', 'srv.csr', '-CA', 'ca.crt', '-CAkey', 'ca.key', '-out', 'srv.crt', '-days', '1', '-extfile', 'san.cnf'])
+      const caPem = readFileSync(join(dir, 'ca.crt'), 'utf8')
+      const httpsServer = createHttpsServer(
+        { key: readFileSync(join(dir, 'srv.key')), cert: readFileSync(join(dir, 'srv.crt')) },
+        (request: IncomingMessage, response: ServerResponse) => {
+          response.writeHead(200, { 'content-type': 'application/json' })
+          response.end(`${JSON.stringify({ content: [{ type: 'text', text: 'tls-ok' }], usage: { input_tokens: 7, output_tokens: 9 } })}\n`)
+        },
+      )
+      await new Promise<void>(resolve => httpsServer.listen(0, '127.0.0.1', resolve))
+      const tlsPort = (httpsServer.address() as { port: number }).port
+      stoppers.push(() => new Promise<void>((resolve, reject) => {
+        httpsServer.closeAllConnections()
+        httpsServer.close(error => (error === undefined ? resolve() : reject(error)))
+      }))
+      const broker = await startBroker({ upstreamBaseUrl: `https://127.0.0.1:${tlsPort}`, modelAllowlist: ['test-model'], trustedCaPem: caPem })
+      const result = await post(broker, '/v1/messages', { model: 'test-model', messages: [] })
+      expect(result.status).toBe(200)
+      expect(broker.report()).toMatchObject({ calls: 1, promptTokens: 7, completionTokens: 9, totalTokens: 16, usageUnknownCalls: 0 })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
