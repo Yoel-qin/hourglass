@@ -1,0 +1,32 @@
+{
+  "schema": "hourglass-agent-lane-lock/1",
+  "lockedAt": "2026-10-25T05:28:55.744Z",
+  "lockReason": "Freezes the agent-lane real-task benchmark (manifest + every task file) with the same LF-normalized sha256 discipline as evolution.lock.json. evolution.lock.json itself stays untouched so published shell-lane reports keep verifying.",
+  "files": {
+    "agent-lane/tasks/lock-hash-lf-normalized/fixture/lock-gate.mjs": "cc42ab208e87e357ed79346835040e0128264d0f62ee5ca70def6b0d0e1abcd6",
+    "agent-lane/tasks/lock-hash-lf-normalized/judge/judge.mjs": "3534913ef884c5f2a1c95c336a3a6762aa1491540bf0f7cfa1f7acbe9bd4205b",
+    "agent-lane/tasks/lock-hash-lf-normalized/reference/lock-gate.mjs": "486b7efffb6dad103bf7307a8e684aefbac0d1e77464e53020eeec4322f463e5",
+    "agent-lane/tasks/lock-hash-lf-normalized/task.json": "d01301267b5e438d401feb228bfab617b693c4b1b86d805ab53a6f97b07d18e4",
+    "agent-lane/tasks/manifest.json": "3428a01a6b95e57e9a371c662594951ddf6aa708ac67b130669825e67a637493",
+    "agent-lane/tasks/nightly-env-fail-fast/fixture/nightly-drill.mjs": "0d8eb9681580d63551fa3054ff90fa91b69632f7b785c8cecb78bdce961d99ce",
+    "agent-lane/tasks/nightly-env-fail-fast/judge/judge.mjs": "c1fae74128895236dd9d1ede0b9b2b787667f7f274c77f8a5aaaabf133f19c72",
+    "agent-lane/tasks/nightly-env-fail-fast/reference/nightly-drill.mjs": "3238e9209e28a0ef8273c4f5eb72b4f8265f25772fc82820fc81f468ac7bd5d7",
+    "agent-lane/tasks/nightly-env-fail-fast/task.json": "f219aafa9db4490c54bd23b3d4fd336eedd2b5699fb925b0280b562046a473a5",
+    "agent-lane/tasks/sse-crlf-usage/fixture/usage-from-sse.mjs": "ee5fe134660f3aff3885857d2d2c14d999cae8cececd4ceccb2960221d2619cb",
+    "agent-lane/tasks/sse-crlf-usage/judge/judge.mjs": "c633c1f9fec22a91e8d975b00346d96d25eac38c8e89228b1509f6583fd70066",
+    "agent-lane/tasks/sse-crlf-usage/reference/usage-from-sse.mjs": "307004519c17c89992a175705f0b033c354f79631be94f5870145a75d4b5f2ee",
+    "agent-lane/tasks/sse-crlf-usage/task.json": "fcb40ae83841cc4492e83cf1e8c7089de2e0d3fc10a351ac722f107e14831029",
+    "agent-lane/tasks/stdin-epipe-contained/fixture/trial-run.mjs": "ae93923456b42ce89f5f6ec0a59706f753d424da545bbadefe5e211d3d97a3e8",
+    "agent-lane/tasks/stdin-epipe-contained/judge/judge.mjs": "196e77ea58ce387032c99a3870780b870f69b3ca4b741823b89fb65ac73b964c",
+    "agent-lane/tasks/stdin-epipe-contained/reference/trial-run.mjs": "f631788d67952becc54c71fd6423bdb5ffa73b194fc1cc28fec17fb925d158fb",
+    "agent-lane/tasks/stdin-epipe-contained/task.json": "7f11d154cda1d536bcf2836d6f2ec17df0017cdd4a6a4ef7bd89e1df9ec2003a",
+    "agent-lane/tasks/tag-binding-plain-tags/fixture/env-gate.mjs": "14642643eed28943b221a91937d85ca22ac6b69c27a3b9c451d1a5b5acf2f13a",
+    "agent-lane/tasks/tag-binding-plain-tags/judge/judge.mjs": "569b4e54928638cbff34fb0ebfedea17fc2991b2be9bb7faa788b8c5cccda64a",
+    "agent-lane/tasks/tag-binding-plain-tags/reference/env-gate.mjs": "644277590752f8171ac55148b926259a21da187df05c27cd43682c4540a740d1",
+    "agent-lane/tasks/tag-binding-plain-tags/task.json": "c6a517d3c51f3706f7ed6c63a88ae303abb7d5bdc05ac2bcd1992b5cc2b15d43",
+    "agent-lane/tasks/z-from-ci/fixture/ci-gate.mjs": "369be75f66fb040af10913a75b4c6e6bee4288eca54961a2481db7fb7e96ab3e",
+    "agent-lane/tasks/z-from-ci/judge/judge.mjs": "0ca80957fdfe8a06a5adece863a3b88a08fdedbdd721669e8d50c9e5f6b5fcba",
+    "agent-lane/tasks/z-from-ci/reference/ci-gate.mjs": "29953e352b0ac32083933010c7eb990f2a582e3cf744c7e77dc9a8d15765d166",
+    "agent-lane/tasks/z-from-ci/task.json": "098a157d727e212d48a115e012a0b076751c68485b268ccd633b37c9ff9badf3"
+  }
+}

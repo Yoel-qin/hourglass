@@ -1,0 +1,12 @@
+{
+  "schema": "hourglass-agent-task/1",
+  "id": "tag-binding-plain-tags",
+  "category": "environment-gate",
+  "title": "普通版本标签导致环境指纹门禁假失配",
+  "origin": {
+    "commit": "74d653ec882831174a07258da7c740a27e111399",
+    "summary": "PR#11 review: environment gate compares HEAD sha with pinned-sha tags only (no false mismatch on plain version tags)"
+  },
+  "prompt": "工作区中的 env-gate.mjs 是环境指纹门禁的最小实现：判断安装树是否与锁文件钉住的 sha 一致。tree 参数含 headSha（安装树 HEAD 的 sha，不可读时为 undefined）与 tags（指向 HEAD 的标签名列表——容器镜像会把上游 sha 作为标签打在物化提交上，普通检出也可能带有 v1.2.3 这类普通版本标签）。缺陷：当前实现只要 tags 非空就取第一个标签名与钉住 sha 比较，HEAD sha 根本不参与，导致「HEAD 本来就匹配、但恰好存在一个普通版本标签」的环境被误判为失配。请修复该文件，要求：\n1. environmentMatches(tree, pinnedSha) 当且仅当 headSha 等于 pinnedSha、或 tags 中存在某个标签名恰好等于 pinnedSha 时返回 true；\n2. 两者都不匹配（含 headSha 不可读且无匹配标签）时必须返回 false（fail-closed，不得抛错）；\n3. 不引入任何外部依赖；\n4. 保持导出名与函数签名不变，只允许修改 env-gate.mjs。",
+  "allowedFiles": ["env-gate.mjs"]
+}

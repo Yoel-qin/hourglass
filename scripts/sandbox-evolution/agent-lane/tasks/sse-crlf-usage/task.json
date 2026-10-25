@@ -1,0 +1,12 @@
+{
+  "schema": "hourglass-agent-task/1",
+  "id": "sse-crlf-usage",
+  "category": "usage-metering",
+  "title": "CRLF 行尾的 SSE 帧被丢弃导致用量未计量",
+  "origin": {
+    "commit": "c926ba0192a8a8cd67a1112db1a01ddee316977b",
+    "summary": "review round 5: CR-tolerant SSE frames (usage tee must never see dropped CRLF frames)"
+  },
+  "prompt": "工作区中的 usage-from-sse.mjs 从 SSE 聊天补全流中提取用量计量：携带 usage 对象的 data 帧（启用用量流式上报时最后发出），最后一个携带 usage 的帧胜出，[DONE] 帧终止流。缺陷：data 帧匹配正则未容忍 CR 行尾，而 CRLF 行尾是完全合法的 SSE 帧格式（非 Node 网关常见）——CRLF 帧被整帧丢弃，该流完全失去计量，用量上限只能 fail-closed 地拒绝。请修复该文件，要求：\n1. LF 与 CRLF 行尾的 data 帧都必须被解析（usage 提取结果一致）；\n2. 「最后一个携带 usage 的帧胜出」与「无 usage 帧返回 undefined」语义在两种行尾下都保持；\n3. 帧内 JSON 解析失败、非对象载荷等坏帧继续被跳过（不得抛错）；\n4. 不引入任何外部依赖；保持导出名与签名不变，只允许修改 usage-from-sse.mjs。",
+  "allowedFiles": ["usage-from-sse.mjs"]
+}

@@ -1,0 +1,67 @@
+{
+  "schema": "hourglass-agent-benchmark/1",
+  "lockedAt": "2026-10-25T05:28:55.742Z",
+  "lockReason": "ADR-004 D1-2 real task set: every task freezes a real hourglass development-history defect (fixture = defect site, reference = the real fix, judge = the real regression assertions). Content-addressed with LF-normalized sha256; frozen by agent-lane.lock.json.",
+  "tasks": [
+    {
+      "id": "lock-hash-lf-normalized",
+      "category": "lock-discipline",
+      "files": {
+        "fixture/lock-gate.mjs": "cc42ab208e87e357ed79346835040e0128264d0f62ee5ca70def6b0d0e1abcd6",
+        "judge/judge.mjs": "3534913ef884c5f2a1c95c336a3a6762aa1491540bf0f7cfa1f7acbe9bd4205b",
+        "reference/lock-gate.mjs": "486b7efffb6dad103bf7307a8e684aefbac0d1e77464e53020eeec4322f463e5",
+        "task.json": "d01301267b5e438d401feb228bfab617b693c4b1b86d805ab53a6f97b07d18e4"
+      }
+    },
+    {
+      "id": "nightly-env-fail-fast",
+      "category": "nightly-discipline",
+      "files": {
+        "fixture/nightly-drill.mjs": "0d8eb9681580d63551fa3054ff90fa91b69632f7b785c8cecb78bdce961d99ce",
+        "judge/judge.mjs": "c1fae74128895236dd9d1ede0b9b2b787667f7f274c77f8a5aaaabf133f19c72",
+        "reference/nightly-drill.mjs": "3238e9209e28a0ef8273c4f5eb72b4f8265f25772fc82820fc81f468ac7bd5d7",
+        "task.json": "f219aafa9db4490c54bd23b3d4fd336eedd2b5699fb925b0280b562046a473a5"
+      }
+    },
+    {
+      "id": "sse-crlf-usage",
+      "category": "usage-metering",
+      "files": {
+        "fixture/usage-from-sse.mjs": "ee5fe134660f3aff3885857d2d2c14d999cae8cececd4ceccb2960221d2619cb",
+        "judge/judge.mjs": "c633c1f9fec22a91e8d975b00346d96d25eac38c8e89228b1509f6583fd70066",
+        "reference/usage-from-sse.mjs": "307004519c17c89992a175705f0b033c354f79631be94f5870145a75d4b5f2ee",
+        "task.json": "fcb40ae83841cc4492e83cf1e8c7089de2e0d3fc10a351ac722f107e14831029"
+      }
+    },
+    {
+      "id": "stdin-epipe-contained",
+      "category": "subprocess-lifecycle",
+      "files": {
+        "fixture/trial-run.mjs": "ae93923456b42ce89f5f6ec0a59706f753d424da545bbadefe5e211d3d97a3e8",
+        "judge/judge.mjs": "196e77ea58ce387032c99a3870780b870f69b3ca4b741823b89fb65ac73b964c",
+        "reference/trial-run.mjs": "f631788d67952becc54c71fd6423bdb5ffa73b194fc1cc28fec17fb925d158fb",
+        "task.json": "7f11d154cda1d536bcf2836d6f2ec17df0017cdd4a6a4ef7bd89e1df9ec2003a"
+      }
+    },
+    {
+      "id": "tag-binding-plain-tags",
+      "category": "environment-gate",
+      "files": {
+        "fixture/env-gate.mjs": "14642643eed28943b221a91937d85ca22ac6b69c27a3b9c451d1a5b5acf2f13a",
+        "judge/judge.mjs": "569b4e54928638cbff34fb0ebfedea17fc2991b2be9bb7faa788b8c5cccda64a",
+        "reference/env-gate.mjs": "644277590752f8171ac55148b926259a21da187df05c27cd43682c4540a740d1",
+        "task.json": "c6a517d3c51f3706f7ed6c63a88ae303abb7d5bdc05ac2bcd1992b5cc2b15d43"
+      }
+    },
+    {
+      "id": "z-from-ci",
+      "category": "evaluation-statistics",
+      "files": {
+        "fixture/ci-gate.mjs": "369be75f66fb040af10913a75b4c6e6bee4288eca54961a2481db7fb7e96ab3e",
+        "judge/judge.mjs": "0ca80957fdfe8a06a5adece863a3b88a08fdedbdd721669e8d50c9e5f6b5fcba",
+        "reference/ci-gate.mjs": "29953e352b0ac32083933010c7eb990f2a582e3cf744c7e77dc9a8d15765d166",
+        "task.json": "098a157d727e212d48a115e012a0b076751c68485b268ccd633b37c9ff9badf3"
+      }
+    }
+  ]
+}

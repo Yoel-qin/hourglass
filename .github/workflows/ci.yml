@@ -66,6 +66,9 @@ jobs:
       - name: Evolution per-file 100% coverage gate
         run: docker run --rm --privileged hourglass-test hourglass-entrypoint evolution-coverage
 
+      - name: Agent lane task-set selftest (real tasks, judge discrimination, zero model)
+        run: docker run --rm --privileged hourglass-test hourglass-entrypoint agent-tasks-selftest
+
       - name: Agent carrier probe (mock LLM, P1-P4 evidence)
         run: docker run --rm --privileged hourglass-test hourglass-entrypoint agent-carrier-smoke
 

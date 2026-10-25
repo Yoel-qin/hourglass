@@ -1,0 +1,12 @@
+{
+  "schema": "hourglass-agent-task/1",
+  "id": "lock-hash-lf-normalized",
+  "category": "lock-discipline",
+  "title": "锁定文件哈希未做行尾归一化，跨平台检出假失配",
+  "origin": {
+    "commit": "6f8ed08a72b708e3a7f9557ba9f570f18b06a7a9",
+    "summary": "PR#4 review round 2: lock digest normalization (reproducible across autocrlf checkouts)"
+  },
+  "prompt": "工作区中的 lock-gate.mjs 是锁定文件摘要门禁的最小实现：sha256(text) 计算文本摘要，verifyLocked(content, expectedSha) 校验文件内容与锁中记录的摘要是否一致。摘要都是在 LF 行尾的检出上记录的。缺陷：verifyLocked 直接对原始内容哈希，而 git 的 autocrlf 会在部分平台检出时把工作区行尾改写成 CRLF——同一份文件在 LF 检出上校验通过、在 CRLF 检出上假失配，锁定门禁跨平台不可复现。请修复该文件，要求：\n1. CRLF 行尾的检出副本必须与 LF 记录的摘要匹配（仅折叠 \\r\\n 为 \\n）；\n2. 内容确实不同时必须仍然失配；\n3. 孤立的 \\r（并非 CRLF 对的一部分）不得被归一化掉——它与无 \\r 的内容必须保持摘要不同；\n4. 保持 sha256 的语义为「对入参文本直接哈希」（记录摘要时用的就是它），不得引入外部依赖，只允许修改 lock-gate.mjs。",
+  "allowedFiles": ["lock-gate.mjs"]
+}

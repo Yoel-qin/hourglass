@@ -1,0 +1,12 @@
+{
+  "schema": "hourglass-agent-task/1",
+  "id": "nightly-env-fail-fast",
+  "category": "nightly-discipline",
+  "title": "夜间 drill 环境变量为垃圾值时零周期假绿",
+  "origin": {
+    "commit": "4cf3e291819e171bff50824185484053ede11c3f",
+    "summary": "PR#9 review: fail-fast env validation (no zero-cycle false green)"
+  },
+  "prompt": "工作区中的 nightly-drill.mjs 是一个长循环演练 CLI：从环境变量 DRILL_CYCLES 读取循环数（缺省 50），逐周期执行后打印 JSON 报告并以 0 退出。缺陷：当前用 Number.parseInt 解析环境变量，垃圾值（如 abc）解析为 NaN、零值解析为 0，循环体一次都不执行，脚本照样打印 ok:true 的绿色报告——夜间门禁被静默掏空。请修复该文件，要求：\n1. DRILL_CYCLES 不是严格正整数字面量（含 abc、0、3x、空串等）时必须立刻失败：非零退出码、错误信息指名 DRILL_CYCLES 与原始值；\n2. 合法值（如 3）行为不变：恰好执行该周期数、打印报告并以 0 退出；\n3. 缺省回退（未设置该变量时用 50）保持可用；\n4. 不引入任何外部依赖，只允许修改 nightly-drill.mjs。",
+  "allowedFiles": ["nightly-drill.mjs"]
+}

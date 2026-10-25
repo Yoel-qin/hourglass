@@ -1,0 +1,12 @@
+{
+  "schema": "hourglass-agent-task/1",
+  "id": "stdin-epipe-contained",
+  "category": "subprocess-lifecycle",
+  "title": "子进程 stdin EPIPE 未捕获导致运行器进程崩溃",
+  "origin": {
+    "commit": "74d653ec882831174a07258da7c740a27e111399",
+    "summary": "PR#11 review: contain stdin EPIPE (uncaught crash path)"
+  },
+  "prompt": "工作区中的 trial-run.mjs 是一个受限试炼运行器：spawn 驱动子进程、把负载写入其 stdin、由看门狗兜底超时。缺陷：当驱动子进程在读完负载前就退出或销毁读端时，写入端会发出 EPIPE 流错误，当前实现没有处理该错误事件，Node 会把它当作未捕获异常直接崩溃整个运行器进程，所有在途试炼随之丢失。请修复该文件，要求：\n1. 该场景下 runTrial 必须正常 resolve（ok=false、由看门狗判定 timedOut=true），运行器进程不得崩溃；\n2. EPIPE 之外的正常失败路径（spawn 失败、非零退出码）行为保持不变；\n3. 不引入任何外部依赖；\n4. 保持现有导出名与函数签名不变，只允许修改 trial-run.mjs。",
+  "allowedFiles": ["trial-run.mjs"]
+}
