@@ -142,6 +142,8 @@ interface LaneReport {
     readonly usageUnknownCalls: number
     readonly cappedReason?: string
     readonly wallClockMs: number
+    /** Records evicted by the broker's ring buffer (audit-trail truncation). */
+    readonly droppedRecords: number
     readonly records: readonly { kind: string; status: number; model?: string; promptTokens?: number; completionTokens?: number; totalTokens?: number; reason?: string }[]
   }
   readonly model: string
@@ -481,7 +483,9 @@ async function main(): Promise<number> {
       wallClockMs: Date.now() - startedAt,
       // Full per-call records (ring-capped): lets a reader audit what the
       // unknown-usage calls actually were (refusals, client aborts) instead
-      // of trusting aggregate counters.
+      // of trusting aggregate counters. droppedRecords counts entries the
+      // ring buffer evicted, so a truncated audit trail is visible.
+      droppedRecords: metering.droppedRecords,
       records: metering.records.map(record => ({
         kind: record.kind, status: record.status, model: record.model,
         promptTokens: record.promptTokens, completionTokens: record.completionTokens,
