@@ -91,6 +91,29 @@ do_evolution_smoke() {
   return "$nochange_status"
 }
 
+do_agent_lane_smoke() {
+  log "running agent-lane MOCK trial lane (paired arms, hidden judges, broker metering; zero real model)"
+  set +e
+  node --experimental-strip-types "$DSH/packages/hourglass/evolution-runner/agent-lane/agent-lane-runner.ts" \
+    --lane=mock --out="$REPORTS/runs/agent-lane-mock-latest" 2>&1 | tee "$REPORTS/runs/agent-lane-mock-latest.txt"
+  local status=${PIPESTATUS[0]}
+  set -e
+  return "$status"
+}
+
+do_agent_lane_real() {
+  # Manual/nightly REAL lane (ADR-004 M1). The runner itself enforces the
+  # double opt-in: env HOURGLASS_AGENT_LANE_REAL=1 AND host-side
+  # DEEPSEEK_API_KEY (broker-only; never enters the child).
+  log "running agent-lane REAL trial lane (explicit opt-in enforced by the runner)"
+  set +e
+  node --experimental-strip-types "$DSH/packages/hourglass/evolution-runner/agent-lane/agent-lane-runner.ts" \
+    --lane=real --out="$REPORTS/runs/agent-lane-real-$(date -u +%Y%m%dT%H%M%SZ)" 2>&1 | tee "$REPORTS/runs/agent-lane-real-latest.txt"
+  local status=${PIPESTATUS[0]}
+  set -e
+  return "$status"
+}
+
 do_agent_tasks_selftest() {
   log "running agent-lane task-set selftest (real tasks, judge discrimination, zero model)"
   set +e
@@ -153,7 +176,9 @@ case "${1:-bash}" in
   evolution-nightly)  do_evolution_nightly ;;
   agent-tasks-selftest)  do_agent_tasks_selftest ;;
   agent-carrier-smoke) do_agent_carrier_smoke ;;
-  run-all)      do_gates; do_unit; do_evolution_smoke; do_evolution_coverage; do_agent_tasks_selftest; do_agent_carrier_smoke; do_compare; do_perf; do_rob04 ;;
+  agent-lane-smoke)    do_agent_lane_smoke ;;
+  agent-lane-real)     do_agent_lane_real ;;
+  run-all)      do_gates; do_unit; do_evolution_smoke; do_evolution_coverage; do_agent_tasks_selftest; do_agent_carrier_smoke; do_agent_lane_smoke; do_compare; do_perf; do_rob04 ;;
   bash)         exec bash ;;
   *)            exec "$@" ;;
 esac
