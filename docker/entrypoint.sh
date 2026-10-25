@@ -104,11 +104,19 @@ do_agent_lane_smoke() {
 do_agent_lane_real() {
   # Manual/nightly REAL lane (ADR-004 M1). The runner itself enforces the
   # double opt-in: env HOURGLASS_AGENT_LANE_REAL=1 AND host-side
-  # DEEPSEEK_API_KEY (broker-only; never enters the child).
+  # DEEPSEEK_API_KEY (broker-only; never enters the child). AGENT_LANE_TASKS
+  # optionally narrows the run to a minimal task subset first (token-saving
+  # order: mock -> minimal subset -> full nightly).
   log "running agent-lane REAL trial lane (explicit opt-in enforced by the runner)"
+  local tasks_arg=""
+  if [ -n "${AGENT_LANE_TASKS:-}" ]; then
+    tasks_arg="--tasks=${AGENT_LANE_TASKS}"
+    log "agent-lane real subset: ${AGENT_LANE_TASKS}"
+  fi
   set +e
   node --experimental-strip-types "$DSH/packages/hourglass/evolution-runner/agent-lane/agent-lane-runner.ts" \
-    --lane=real --out="$REPORTS/runs/agent-lane-real-$(date -u +%Y%m%dT%H%M%SZ)" 2>&1 | tee "$REPORTS/runs/agent-lane-real-latest.txt"
+    --lane=real ${tasks_arg} \
+    --out="$REPORTS/runs/agent-lane-real-$(date -u +%Y%m%dT%H%M%SZ)" 2>&1 | tee "$REPORTS/runs/agent-lane-real-latest.txt"
   local status=${PIPESTATUS[0]}
   set -e
   return "$status"

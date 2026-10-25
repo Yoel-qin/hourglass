@@ -9,3 +9,7 @@ docker/vendor/
 
 # one-shot agent-lane child profile patches (written next to the committed shims)
 scripts/sandbox-evolution/agent-lane/.child-*.patch.yml
+
+# host-side secrets for the real agent lane (never committed, never through chat)
+.secrets/*
+!.secrets/deepseek.env.example

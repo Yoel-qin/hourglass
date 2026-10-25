@@ -99,3 +99,88 @@ docker run --rm --privileged -v "$(pwd -W)/reports:/opt/reports" \
 | blocked: required-capability-unavailable | `probeBwrap` 失败（非 privileged 容器？）或五能力降级 |
 | driver-no-output / watchdog-timeout | trial-driver 崩溃；查 `ledger-*.jsonl` 与 driver stderr（response.error 带 500 字符） |
 | pr-agent 评论身份回退 github-actions | Actions 日志 `::warning::`；App 未安装/权限不含三项/secrets 失效 |
+
+## 9. Agent lane（ADR-004 MVP-B/M1）
+
+承载 = 完整 DSH 子进程（subagent-dsh-sdk，一次性 profile + 治理插件
+`- insert:` 于子进程内）；基准 = 真实任务集
+（`evolution-runner/agent-lane/tasks/`，六项 hourglass 开发史真实缺陷，
+内容寻址冻结于 `agent-lane.lock.json`）；判定 = 隐藏 judge（判定侧私有，
+只有 fixture 与脱敏 prompt 进入子代理工作区）。
+
+### 9.1 零模型命令（CI/日常，随时可跑）
+
+```bash
+# 任务集判别力自检：fixture 必须被 judge 拒、reference 必须过
+docker run --rm --privileged -v "$(pwd -W)/reports:/opt/reports" \
+  hourglass-test hourglass-entrypoint agent-tasks-selftest
+
+# 载体探针：P1-P4 切换前置证据（独立 PID/子侧隔离/一次性生命周期/
+# 内容寻址技能注入），mock LLM
+docker run --rm --privileged -v "$(pwd -W)/reports:/opt/reports" \
+  hourglass-test hourglass-entrypoint agent-carrier-smoke
+
+# mock 试炼 lane：每任务配对双臂 + 隐藏判定 + 四态汇总 + broker 计量
+# （candidate 臂 = 脚本驱动参照修复经子进程工具执行；机制证明，非计分）
+docker run --rm --privileged -v "$(pwd -W)/reports:/opt/reports" \
+  hourglass-test hourglass-entrypoint agent-lane-smoke
+```
+
+### 9.2 真实 lane 首跑（手动，显式 opt-in）
+
+**密钥放置**：复制 `.secrets/deepseek.env.example` 为
+`.secrets/deepseek.env`（已 gitignore），填入 `DEEPSEEK_API_KEY=sk-…`。
+密钥只经 `docker run --env-file` 进入宿主侧 broker；子进程环境只有哑
+密钥（broker 剥除客户端凭据后注入真实 key）。密钥不进 git、不进聊天、
+不进任何报告。
+
+**双重确认**：`--lane=real` 旗标（entrypoint 命令携带）**且** env
+`HOURGLASS_AGENT_LANE_REAL=1` **且** env `DEEPSEEK_API_KEY`——缺一即拒
+（实测 exit 1）。
+
+**省量次序**（ADR-004 已决纪律）：
+
+```bash
+# ① dry-run：只打印计划臂数与调用上界，不 spawn（无需密钥）
+docker run --rm --privileged hourglass-test \
+  --entrypoint node --experimental-strip-types \
+  /opt/dsh/packages/hourglass/evolution-runner/agent-lane/agent-lane-runner.ts \
+  --lane=real --dry-run
+
+# ② 最小子集首跑：单任务双臂（≤16 调用上界；AGENT_LANE_TASKS 传子集）
+docker run --rm --privileged \
+  --env-file .secrets/deepseek.env \
+  -e HOURGLASS_AGENT_LANE_REAL=1 \
+  -e AGENT_LANE_TASKS=z-from-ci \
+  -v "$(pwd -W)/reports:/opt/reports" \
+  hourglass-test hourglass-entrypoint agent-lane-real
+
+# ③ 全量基线（六任务双臂；夜间/手动，采阈值重校数据）
+docker run --rm --privileged \
+  --env-file .secrets/deepseek.env \
+  -e HOURGLASS_AGENT_LANE_REAL=1 \
+  -v "$(pwd -W)/reports:/opt/reports" \
+  hourglass-test hourglass-entrypoint agent-lane-real
+```
+
+报告落盘 `reports/runs/agent-lane-real-<UTC>/report.json`（卷挂载出容器），
+含每臂 judge 结果、子进程 PID、技能到达证据、调用/token 计量与四态
+campaign（策略标 `provisional`，待真实基线重校后写 ADR-004 附表）。
+
+**硬上限**（fail-closed，env 可调但坏值拒跑）：默认 2,000,000 token /
+30 分钟 / 每臂 ≤8 轮（`HOURGLASS_AGENT_LANE_MAX_TOKENS` /
+`_WALL_CLOCK_MS` / `_MAX_TURNS`；模型与上游
+`HOURGLASS_AGENT_LANE_MODEL`（默认 `DeepSeek-V4.1-Flash`）/
+`HOURGLASS_AGENT_LANE_UPSTREAM`（默认
+`https://api.deepseek.com/anthropic`））。超限 broker 拒绝后续请求 →
+任务 `blocked`，不静默继续。
+
+### 9.3 故障速查（agent lane）
+
+| 症状 | 首查 |
+|---|---|
+| real lane refusing（缺 env） | `HOURGLASS_AGENT_LANE_REAL=1` 与 `DEEPSEEK_API_KEY` 双确认 + `--lane=real` |
+| invalid HOURGLASS_AGENT_LANE_* | 坏 env 值拒跑（fail-closed）；检查千分位逗号/单位后缀 |
+| 子进程静默零治理插件 | patch 必须与 shims 同目录（`./`-相对按 patch 目录解析）；runner 已固化，自查勿改 |
+| judge-result-line-missing | 子代理产物异常；`HOURGLASS_AGENT_LANE_KEEP=1` 重跑看 arms/ 工作区与 stderr 镜头 |
+| broker capped（max-tokens 等） | 计量触顶 fail-closed；查 report.metering 与 caps 是否需要显式调高（夜间再跑） |

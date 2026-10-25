@@ -95,3 +95,46 @@ docker run --rm --privileged -v "$(pwd -W)/reports:/opt/reports" \
   hourglass-test hourglass-entrypoint run-all
 # 或分项：gates / unit / evolution-smoke / evolution-coverage / evolution-nightly / compare / perf / rob04
 ```
+
+## 8. MVP-B / M1 增量（ADR-004 真实试炼 lane，PR #15–#18）
+
+ADR-004（已接受，2026-10-24）把试炼信号从「合成基准上的命令覆盖」升级
+为「真实任务上的配对证据」。四 PR 交付，全部走完 评审→修复→CI 绿→合入：
+
+| PR | 交付 | 评审轮 |
+|---|---|---|
+| #15 | **D2-1 LLM broker**：host 侧唯一咽喉——凭据注入/剥除、双协议（completions + Messages）、usage 计量取上游真值、fail-closed 硬上限（调用/token/墙钟/并发，含中止调用计费）、代理 CONNECT 边界硬化 | 5 轮，202 测试 per-file 100% |
+| #16 | **D1-1 载体探针**：subagent-dsh-sdk 全量 DSH 子进程，P1-P4 切换前置证据全过（独立 PID、子侧隔离内容级证据、一次性生命周期零 fd 增长、候选技能仅经内容寻址快照到达模型请求） | 4 轮 |
+| #17 | **D1-2 真实任务集**：六项 hourglass 开发史真实缺陷（fixture=缺陷现场最小提取、judge=当时真实回归断言、reference=真实修复），内容寻址 manifest + agent-lane.lock.json（与 shell lane 同纪律；evolution.lock.json 字节不动）+ 判别力自检（fixture 必拒、reference 必过） | 1 轮 |
+| #18 | **D1/D2 合流 runner**：配对双臂试炼（baseline vs 候选技能）→ 隐藏 judge → 四态 campaign（策略 provisional）→ broker 计量进 report；mock 冒烟进 CI，真实 lane 双重 opt-in + dry-run 调用上界 + 最小子集先行 | 1 轮 |
+
+**mock lane 全链路实测**（容器，2026-10-25）：六任务双臂全部 completed，
+baseline 0% / candidate 100%（参照修复经子进程自身工具执行落地），
+技能快照到达每个 candidate 请求，18 调用 / 426 token 计量入报，
+campaign=`inconclusive (insufficient-samples)`——6<8 配对样本如实报不足。
+载体探测回归 ok=true（P1-P4 不变）；任务自检 6/6 判别有效；单测 23 文件
+296 用例、evolution 覆盖 13 文件 202 测试 per-file 100%。
+
+**调试修复的重要缺陷**（均已实证后固化）：patch 未与 shims 同目录时
+子进程**静默零治理插件装载**（技能镜头缺失暴露）；SSE CRLF 帧丢弃致
+用量失计量；caps env 坏值 NaN fail-open（改拒跑）；`*.md` CRLF 检出下
+技能 frontmatter 解析失败（shim CR 容忍）。
+
+### 8.1 待回填：真实 lane 首跑与阈值重校
+
+真实 DeepSeek lane（双重 opt-in + `--env-file` 密钥路径，操作步骤见
+runbook §9.2）首跑后将回填：各臂成功率/方差、token 与墙钟分布、
+六任务判定的噪声水平；按 ADR-002 三原则重校的 agent lane 阈值写入
+ADR-004 附表（旧 golden 保留为 shell lane 基准）。本节与附表在首跑
+数据落盘前保持「待回填」状态——不预估、不假设。
+
+### 8.2 复现（增量）
+
+```bash
+docker build -t hourglass-test -f docker/Dockerfile . --pull=false
+# 零模型链路（CI 同款）
+docker run --rm --privileged hourglass-test hourglass-entrypoint agent-tasks-selftest
+docker run --rm --privileged hourglass-test hourglass-entrypoint agent-carrier-smoke
+docker run --rm --privileged hourglass-test hourglass-entrypoint agent-lane-smoke
+# 真实 lane（手动，见 runbook §9.2 密钥与省量次序）
+```
