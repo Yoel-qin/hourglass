@@ -137,7 +137,20 @@ golden 维持未启用**（六任务对该模型零区分度，严格改进阈�
 abortedCallTokenCharge fail-closed 计价并逐调用留痕。首跑证据存本地
 `reports/runs/agent-lane-real-20261025T103{415,754}Z`（不入库）。
 
-### 8.2 复现（增量）
+### 8.2 八轮配对基线与首个真实候选试炼（2026-10-25，ADR-004 附表 B）
+
+10 任务（含 tranche-2 四个更难真实任务）× 双臂 × 8 轮：1,899K token /
+1,059 次调用；7 轮全绿 + 1 轮调用上限 fail-closed（该轮配对按截断剔
+除）。结论：①成功率天花板在 n=8（80 配对）下不动——更难任务也全被
+deepseek-flash 解出；②成本维度出真信号：首个真实候选
+`hourglass-fix-discipline` 判 **reject**——9/10 任务配对更贵（技能正文
+的每轮提示开销未被省轮次赚回），总体配对差 +2,566 token/任务对；唯
+一例外的最难任务 z-from-ci 净差 −3,950 但符号不稳定（7 对 3 正）。
+跨轮方差 3–6 倍，配对设计与 n≥8 是最低要求。golden 维持未启用，细化
+条件见 ADR-004 附表 B。这是 agent lane 首次以真实数据否决真实候选
+（机制闭环证据），也是「候选技能不是免费的」首条实测。
+
+### 8.3 复现（增量）
 
 ```bash
 docker build -t hourglass-test -f docker/Dockerfile . --pull=false

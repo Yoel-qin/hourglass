@@ -187,3 +187,30 @@ DeepSeek-V4.1-Flash 的 **API id**——显示名直接传参会被告点 400 �
 | 子进程静默零治理插件 | patch 必须与 shims 同目录（`./`-相对按 patch 目录解析）；runner 已固化，自查勿改 |
 | judge-result-line-missing | 子代理产物异常；`HOURGLASS_AGENT_LANE_KEEP=1` 重跑看 arms/ 工作区与 stderr 镜头 |
 | broker capped（max-tokens 等） | 计量触顶 fail-closed；查 report.metering 与 caps 是否需要显式调高（夜间再跑） |
+
+### 9.4 批量基线采集与聚合（ADR-004 附表 B 数据形态）
+
+```bash
+# 顺序采集 N 轮（真实 lane，candidate 臂用指定候选技能；每轮报告落
+# reports/runs/agent-lane-sample-N/）。轮数按附表 B 的方差结论选择：
+# 成对大效应 n≥8，小效应 n≥16。
+for i in 1 2 3 4 5 6 7 8; do
+  docker run --rm --privileged \
+    --env-file .secrets/deepseek.env \
+    -e HOURGLASS_AGENT_LANE_REAL=1 \
+    -v "$(pwd -W)/reports:/opt/reports" \
+    --entrypoint node hourglass-test \
+    --experimental-strip-types \
+    /opt/dsh/packages/hourglass/evolution-runner/agent-lane/agent-lane-runner.ts \
+    --lane=real \
+    --candidate-skill=/opt/dsh/packages/hourglass/evolution-runner/agent-lane/candidates/fix-discipline.md \
+    --out=/opt/reports/runs/agent-lane-sample-$i
+done
+
+# 聚合：逐任务双臂分布 + 配对差值（成功率/调用数/token）
+node --experimental-strip-types scripts/sandbox-evolution/agent-lane/aggregate-samples.ts reports/runs
+```
+
+上限提醒：默认每轮调用上限 = 任务数×2×8+8。高方差任务（如 z-from-ci
+基线单轮可达 38 次调用）可能触顶——触顶轮按截断处理（剔除该任务配
+对），或以 `HOURGLASS_AGENT_LANE_MAX_TURNS` 调高重跑（注意预算）。
