@@ -60,6 +60,10 @@ function fmt(values: readonly number[]): string {
 
 function main(): number {
   const root = process.argv[2] ?? 'reports/runs'
+  if (!existsSync(root)) {
+    console.error(`[aggregate] sample root does not exist: ${root}`)
+    return 1
+  }
   const dirs = readdirSync(root, { withFileTypes: true })
     .filter(entry => entry.isDirectory() && entry.name.startsWith('agent-lane-sample-'))
     .map(entry => join(root, entry.name))
@@ -78,8 +82,17 @@ function main(): number {
   }
 
   const byTask = new Map<string, { category: string; runs: number; baselineSuccess: number; candidateSuccess: number; baselineTokens: number[]; candidateTokens: number[]; baselineCalls: number[]; candidateCalls: number[]; pairedTokenDelta: number[]; pairedCallDelta: number[] }>()
-  for (const { report } of reports) {
+  const truncatedPairs: { run: string; taskId: string }[] = []
+  for (const { run, report } of reports) {
     for (const task of report.tasks) {
+      // A pair whose arms did not both complete (e.g. a per-run call cap
+      // tripped mid-arm) is TRUNCATED data: its counters understate real
+      // spend and must not enter the distributions (ADR-004 appendix B
+      // discipline — the pair is dropped and reported, never averaged in).
+      if (task.blocked) {
+        truncatedPairs.push({ run, taskId: task.id })
+        continue
+      }
       let entry = byTask.get(task.id)
       if (entry === undefined) {
         entry = { category: task.category, runs: 0, baselineSuccess: 0, candidateSuccess: 0, baselineTokens: [], candidateTokens: [], baselineCalls: [], candidateCalls: [], pairedTokenDelta: [], pairedCallDelta: [] }
@@ -116,16 +129,19 @@ function main(): number {
       pairedTokenDelta: fmt(task.pairedTokenDelta),
       pairedCallDelta: fmt(task.pairedCallDelta),
     })),
+    truncatedPairs,
     overall: {
       pairedTokenDeltaMean: mean(allPairedTokens),
       pairedTokenDeltaTotal: allPairedTokens.reduce((sum, value) => sum + value, 0),
       totalRuns: reports.length,
+      cleanPairs: allPairedTokens.length,
     },
   }
   const outPath = join(root, 'agent-lane-samples-aggregate.json')
   writeFileSync(outPath, `${JSON.stringify(aggregate, null, 2)}\n`, 'utf8')
 
-  console.log(`[aggregate] runs=${String(reports.length)} (real lane)`)
+  console.log(`[aggregate] runs=${String(reports.length)} (real lane), truncated pairs dropped: ${String(truncatedPairs.length)}`)
+  for (const pair of truncatedPairs) console.log(`[aggregate]   truncated: ${pair.run} / ${pair.taskId}`)
   for (const task of aggregate.perTask) {
     console.log(`[aggregate] ${task.id}: base ${task.baselineSuccess} / cand ${task.candidateSuccess}`)
     console.log(`[aggregate]   tokens base ${task.baselineTokens}`)
@@ -137,4 +153,4 @@ function main(): number {
   return 0
 }
 
-main()
+process.exitCode = main()
