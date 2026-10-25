@@ -6,3 +6,6 @@ reports/runs/
 .DS_Store
 docker/vendor/
 .mimosa/
+
+# one-shot agent-lane child profile patches (written next to the committed shims)
+scripts/sandbox-evolution/agent-lane/.child-*.patch.yml

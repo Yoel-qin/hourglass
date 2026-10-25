@@ -27,6 +27,7 @@
  */
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -66,13 +67,29 @@ const PROVISIONAL_POLICY: EvaluatorPolicy = {
   controlRunTolerancePct: 5,
 }
 
+/**
+ * Validated positive-integer env override for the real-lane caps: a
+ * malformed value REFUSES the run. A NaN cap never trips (fail-open), and
+ * silently falling back to the default could exceed an operator's intended
+ * LOWER budget — refusing is the only fail-closed option (PR #18 review).
+ */
+function envPositiveInt(name: string, fallback: number): number {
+  const raw = process.env[name]
+  if (raw === undefined || raw.trim() === '') return fallback
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value < 1 || String(value) !== raw.trim()) {
+    throw new Error(`invalid ${name}: expected a positive integer, got ${JSON.stringify(raw)}`)
+  }
+  return value
+}
+
 /** Real-lane caps (fail-closed): every value env-overridable, defaults conservative. */
 function realLaneCaps(taskCount: number) {
-  const maxTurnsPerArm = Number(process.env['HOURGLASS_AGENT_LANE_MAX_TURNS'] ?? '8')
+  const maxTurnsPerArm = envPositiveInt('HOURGLASS_AGENT_LANE_MAX_TURNS', 8)
   return {
-    maxCalls: taskCount * 2 * Math.max(1, maxTurnsPerArm) + 8,
-    maxTotalTokens: Number(process.env['HOURGLASS_AGENT_LANE_MAX_TOKENS'] ?? '2000000'),
-    wallClockMs: Number(process.env['HOURGLASS_AGENT_LANE_WALL_CLOCK_MS'] ?? String(30 * 60_000)),
+    maxCalls: taskCount * 2 * maxTurnsPerArm + 8,
+    maxTotalTokens: envPositiveInt('HOURGLASS_AGENT_LANE_MAX_TOKENS', 2_000_000),
+    wallClockMs: envPositiveInt('HOURGLASS_AGENT_LANE_WALL_CLOCK_MS', 30 * 60_000),
     maxConcurrentCalls: 2,
     abortedCallTokenCharge: 4096,
   }
@@ -279,8 +296,9 @@ async function main(): Promise<number> {
       // loader resolves './'-relative plugin names (the committed shims)
       // against the patch file's directory (the carrier-probe lesson — a
       // patch written elsewhere silently composes with NO governance
-      // plugins).
-      const patchPath = join(BASE_DIR, `.child-${task.id}-${arm}.patch.yml`)
+      // plugins). The name carries pid+uuid so concurrent lane processes in
+      // one container cannot delete each other's patch mid-composition.
+      const patchPath = join(BASE_DIR, `.child-${task.id}-${arm}-${process.pid}-${randomUUID().slice(0, 8)}.patch.yml`)
       writeFileSync(patchPath, buildChildPatchYaml({
         brokerBaseUrl: broker!.baseUrl,
         modelId,
