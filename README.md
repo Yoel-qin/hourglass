@@ -77,6 +77,31 @@ docker run --rm --privileged -v "$(pwd -W)/reports:/opt/reports" \
 [docs/evolution/runbook.md](docs/evolution/runbook.md)；最终验收报告：
 [docs/evolution/final-report.md](docs/evolution/final-report.md)。
 
+### 真实试炼 lane（ADR-004：subagent 承载 + 真实模型边界，PR #15–#18）
+
+v2 之后按 [ADR-004](docs/ADR-004-real-trial-lane.md) 增量：承载升级为
+**完整 DSH 子进程**（`subagent-dsh-sdk` 一次性 profile，治理插件装载于
+子进程内），基准升级为**真实任务集**（六项本仓库开发史真实缺陷修复，
+fixture/隐藏判定/参照修复内容寻址冻结于 `agent-lane.lock.json`），模型
+边界为 **host 侧 LLM broker 唯一咽喉**（凭据不出宿主、usage 计量取上游
+真值、fail-closed 硬上限）。runner 每任务跑 baseline/candidate 配对双臂
+→ 隐藏 judge 判定工作区 → 四态 campaign 汇总 → token/调用/墙钟计量进
+report。PR gate 永远零真实模型；真实 DeepSeek lane 仅手动/夜间、双重
+显式 opt-in（操作手册与密钥路径见 runbook §9）。
+
+```bash
+# 零模型链路（CI 同款，随 run-all）
+docker run --rm --privileged hourglass-test hourglass-entrypoint agent-tasks-selftest   # 任务判别力
+docker run --rm --privileged hourglass-test hourglass-entrypoint agent-carrier-smoke    # P1-P4 载体证据
+docker run --rm --privileged hourglass-test hourglass-entrypoint agent-lane-smoke       # mock 配对试炼
+
+# 真实 lane（手动；密钥放 .secrets/deepseek.env，见 runbook §9.2）
+docker run --rm --privileged --env-file .secrets/deepseek.env \
+  -e HOURGLASS_AGENT_LANE_REAL=1 -e AGENT_LANE_TASKS=z-from-ci \
+  -v "$(pwd -W)/reports:/opt/reports" \
+  hourglass-test hourglass-entrypoint agent-lane-real
+```
+
 ## 安装
 
 前置条件：Docker（本机验证版本 29.7.2，Docker Desktop on WSL2）。
