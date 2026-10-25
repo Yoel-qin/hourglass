@@ -1,0 +1,12 @@
+{
+  "schema": "hourglass-agent-task/1",
+  "id": "verdict-substring-false-positive",
+  "category": "evidence-discipline",
+  "title": "用子串匹配判定 JSON 证据，字段名命中造成假阳性",
+  "origin": {
+    "commit": "366dfd0e9ba5c18b2c3f51bc41ba33cf78b26bd6",
+    "summary": "PR#16 review round 4: P2 evidence at content level (no substring shortcuts — includes('denied') matched \"denied\":false)"
+  },
+  "prompt": "工作区中的 confinement-verdict.mjs 是隔离证据判定的最小实现：网络治理插件输出 JSONL 决策日志（每行一个 JSON 对象，含布尔字段 denied），判定「子进程的网络尝试确实被治理拒绝」应基于日志记录的真实内容。缺陷：当前用 includes('denied') 在整段日志文本上做子串匹配——JSON 字段名本身包含 \"denied\"，于是一份全部为 \"denied\":false（全部放行）的日志也会被判成「存在拒绝」，证据判定被字段名击穿。请修复该文件，要求：\n1. 判定必须基于逐行解析后的记录内容：存在 denied === true 的记录才算数；全 false、空日志、只有坏行都必须判为未隔离；\n2. 解析失败的行跳过（不抛错、不计入拒绝数）；\n3. 不引入任何外部依赖；保持导出名与签名不变，只允许修改 confinement-verdict.mjs。",
+  "allowedFiles": ["confinement-verdict.mjs"]
+}

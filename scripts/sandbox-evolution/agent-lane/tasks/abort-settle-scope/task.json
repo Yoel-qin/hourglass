@@ -1,0 +1,12 @@
+{
+  "schema": "hourglass-agent-task/1",
+  "id": "abort-settle-scope",
+  "category": "broker-accounting",
+  "title": "中止路径引用了外层作用域变量，事件处理器抛错导致结算静默丢失",
+  "origin": {
+    "commit": "fd5a24127fbd8ff298b04ce705b919827a9ab54a",
+    "summary": "review round 4: settle accounting on client aborts (the close handler referenced an out-of-scope name and its throw was swallowed by the event emitter)"
+  },
+  "prompt": "工作区中的 upstream-watch.mjs 是上游调用观察器的最小实现：每个转发的调用必须恰好结算一次——上游响应或客户端中止——且结算记录携带该调用派发时的协议种类 kind。缺陷：abort 事件处理器里引用了一个本函数作用域中不存在的变量，事件分发时抛出异常、结算回调从未执行，该调用的记账就此静默丢失（这类错误不会被调用方看到，只能靠行为断言发现）。请修复该文件，要求：\n1. emit('abort') 后结算必须发生：恰好一次、记录为 { kind, status: 499, ok: false }，且 kind 必须是派发时传入的那个；\n2. 事件分发不得抛出任何异常；\n3. response 路径行为保持（结算 { kind, status, ok: status<400 }）；\n4. 不引入任何外部依赖；保持导出名与签名不变，只允许修改 upstream-watch.mjs。",
+  "allowedFiles": ["upstream-watch.mjs"]
+}

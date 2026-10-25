@@ -1,8 +1,30 @@
 {
   "schema": "hourglass-agent-benchmark/1",
-  "lockedAt": "2026-10-25T05:28:55.742Z",
+  "lockedAt": "2026-10-25T13:09:18.287Z",
   "lockReason": "ADR-004 D1-2 real task set: every task freezes a real hourglass development-history defect (fixture = defect site, reference = the real fix, judge = the real regression assertions). Content-addressed with LF-normalized sha256; frozen by agent-lane.lock.json.",
   "tasks": [
+    {
+      "id": "abort-settle-scope",
+      "category": "broker-accounting",
+      "files": {
+        "fixture/upstream-watch.mjs": "51cc12a358196f16db3ea19311a6036fb7a8be4ebc1c4ede59fa8f38d6d85c04",
+        "judge/judge.mjs": "30b787b3b455fc77bfd421c3d582e6568f18d152aa3accba1cb7ae44d75ae977",
+        "reference/upstream-watch.mjs": "9127e47a26c4d721914768352e558808b65c61195573b6dd4a82c60de21b130b",
+        "task.json": "ccfe38b5eaee785228f0dc63df013ed03b2ceb39b3ef7819e745d6d6b0fc0de4"
+      }
+    },
+    {
+      "id": "concurrency-pid-verdict",
+      "category": "nightly-discipline",
+      "files": {
+        "fixture/drill.mjs": "c0c02556b8f78915dac4efc306f8b2a2b2e136d66740c4d54ba7b8634a45f950",
+        "fixture/verdict.mjs": "bafae66732b3b0928f82afa2187022d26a1419358684a910d170686bc761100f",
+        "judge/judge.mjs": "1a12b1b4543277f66dc21c7c72300d49f5e40f1e13651671d9b067ec1c7c1ab1",
+        "reference/drill.mjs": "541a99d16ae4b55955d761bb6459040bd723c6cae3e10486d0c2d5833d524c8a",
+        "reference/verdict.mjs": "ad814b1027049377df6d0f0fa75277164cbebbd41fde216069c9376e136a5557",
+        "task.json": "8e91bc53a3866dc60f8d7055e5cd0fbdfb31345dd7ef70185ef52a9aff07226d"
+      }
+    },
     {
       "id": "lock-hash-lf-normalized",
       "category": "lock-discipline",
@@ -21,6 +43,16 @@
         "judge/judge.mjs": "c1fae74128895236dd9d1ede0b9b2b787667f7f274c77f8a5aaaabf133f19c72",
         "reference/nightly-drill.mjs": "3238e9209e28a0ef8273c4f5eb72b4f8265f25772fc82820fc81f468ac7bd5d7",
         "task.json": "f219aafa9db4490c54bd23b3d4fd336eedd2b5699fb925b0280b562046a473a5"
+      }
+    },
+    {
+      "id": "refused-slot-release",
+      "category": "broker-accounting",
+      "files": {
+        "fixture/broker-core.mjs": "5e524a33cc80362ed4684532377b64b8ef54aaba667a9dd536466d61e931d0cf",
+        "judge/judge.mjs": "037729a8595dd4b605a2e7962f8d016f918c732e0cfacc27e358224d65e1c6e9",
+        "reference/broker-core.mjs": "312ce82095ac5b5059f0521e73c848b159da394cefc4affebeb9be64efe15ddc",
+        "task.json": "4e165ee10bc85d37b2bf4455c75021bf38ff2d90398889f4b78a355fc284f7ff"
       }
     },
     {
@@ -51,6 +83,16 @@
         "judge/judge.mjs": "569b4e54928638cbff34fb0ebfedea17fc2991b2be9bb7faa788b8c5cccda64a",
         "reference/env-gate.mjs": "644277590752f8171ac55148b926259a21da187df05c27cd43682c4540a740d1",
         "task.json": "c6a517d3c51f3706f7ed6c63a88ae303abb7d5bdc05ac2bcd1992b5cc2b15d43"
+      }
+    },
+    {
+      "id": "verdict-substring-false-positive",
+      "category": "evidence-discipline",
+      "files": {
+        "fixture/confinement-verdict.mjs": "f779119725a526474943ecfa380112e3b7ddb4a218397cc31d403de8c973aabb",
+        "judge/judge.mjs": "e8f5dd808743a7eac1d5cf3e0e1e65bf7f943b38473dd8305fc43f7babff908a",
+        "reference/confinement-verdict.mjs": "5f9f36e402a0710c00be985cc7634faf4dafe0e86e4e4c37ed36ec67065324ce",
+        "task.json": "d22c37111ed00292d94a31332b7df4a532d514e303ae84e53faba754576c1db8"
       }
     },
     {
