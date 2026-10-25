@@ -120,13 +120,22 @@ campaign=`inconclusive (insufficient-samples)`——6<8 配对样本如实报不
 用量失计量；caps env 坏值 NaN fail-open（改拒跑）；`*.md` CRLF 检出下
 技能 frontmatter 解析失败（shim CR 容忍）。
 
-### 8.1 待回填：真实 lane 首跑与阈值重校
+### 8.1 真实 lane 首跑与阈值重校（2026-10-25，已回填）
 
-真实 DeepSeek lane（双重 opt-in + `--env-file` 密钥路径，操作步骤见
-runbook §9.2）首跑后将回填：各臂成功率/方差、token 与墙钟分布、
-六任务判定的噪声水平；按 ADR-002 三原则重校的 agent lane 阈值写入
-ADR-004 附表（旧 golden 保留为 shell lane 基准）。本节与附表在首跑
-数据落盘前保持「待回填」状态——不预估、不假设。
+密钥路径与首跑步骤按 runbook §9.2 执行（`deepseek-flash` @
+api.deepseek.com/anthropic，Bearer 经 broker 注入，密钥全程 host 侧）。
+两跑实测：**子集首跑**（z-from-ci）双臂全过，baseline 8 调用/23,825
+token/51.7s、candidate 5 调用/6,086 token/21.4s；**全量基线**（6 任务
+双臂）12/12 臂 completed 且 judge 全过——**baseline 成功率 100% 天花
+板**，97 调用/150,793 token/墙钟 478s，未触硬上限，recorder 零命中。
+方差实测：同一任务无技能两跑 8→27 调用、23.8K→55.0K token。
+
+重校结论（ADR-002 三原则，全文见 ADR-004 附表 A）：**agent lane 成功率
+golden 维持未启用**（六任务对该模型零区分度，严格改进阈值结构性不可
+满足；晋级继续走 shell lane 旧 golden），agent lane 保持数据采集模式；
+成本/延迟阈值须待每任务 ≥8 配对样本；17/97 用量未知调用按
+abortedCallTokenCharge fail-closed 计价并逐调用留痕。首跑证据存本地
+`reports/runs/agent-lane-real-20261025T103{415,754}Z`（不入库）。
 
 ### 8.2 复现（增量）
 

@@ -136,7 +136,16 @@ interface LaneReport {
     readonly policyProvisional: boolean
   }
   readonly securityFindings: readonly SecurityFinding[]
-  readonly metering: { readonly calls: number; readonly totalTokens: number; readonly usageUnknownCalls: number; readonly cappedReason?: string; readonly wallClockMs: number }
+  readonly metering: {
+    readonly calls: number
+    readonly totalTokens: number
+    readonly usageUnknownCalls: number
+    readonly cappedReason?: string
+    readonly wallClockMs: number
+    /** Records evicted by the broker's ring buffer (audit-trail truncation). */
+    readonly droppedRecords: number
+    readonly records: readonly { kind: string; status: number; model?: string; promptTokens?: number; completionTokens?: number; totalTokens?: number; reason?: string }[]
+  }
   readonly model: string
   readonly upstream: string
 }
@@ -194,7 +203,10 @@ async function main(): Promise<number> {
     if (!loaded.tasks.some(task => task.id === id)) console.error(`[agent-lane] unknown task id: ${id}`)
   }
 
-  const modelId = lane === 'real' ? (process.env['HOURGLASS_AGENT_LANE_MODEL'] ?? 'DeepSeek-V4.1-Flash') : MOCK_MODEL_ID
+  // The API model id, not the display name: ADR-004 picked DeepSeek-V4.1-Flash
+  // whose API id is "deepseek-flash" — passing the display name gets a 400
+  // invalid_request_error from the real endpoint (first-run finding).
+  const modelId = lane === 'real' ? (process.env['HOURGLASS_AGENT_LANE_MODEL'] ?? 'deepseek-flash') : MOCK_MODEL_ID
   const upstream = lane === 'real' ? (process.env['HOURGLASS_AGENT_LANE_UPSTREAM'] ?? 'https://api.deepseek.com/anthropic') : 'mock://scripted'
   const caps = lane === 'real'
     ? realLaneCaps(tasks.length)
@@ -469,6 +481,16 @@ async function main(): Promise<number> {
       usageUnknownCalls: metering.usageUnknownCalls,
       cappedReason: metering.cappedReason,
       wallClockMs: Date.now() - startedAt,
+      // Full per-call records (ring-capped): lets a reader audit what the
+      // unknown-usage calls actually were (refusals, client aborts) instead
+      // of trusting aggregate counters. droppedRecords counts entries the
+      // ring buffer evicted, so a truncated audit trail is visible.
+      droppedRecords: metering.droppedRecords,
+      records: metering.records.map(record => ({
+        kind: record.kind, status: record.status, model: record.model,
+        promptTokens: record.promptTokens, completionTokens: record.completionTokens,
+        totalTokens: record.totalTokens, reason: record.reason,
+      })),
     },
     model: modelId,
     upstream,
