@@ -1,0 +1,12 @@
+{
+  "schema": "hourglass-agent-task/1",
+  "id": "concurrency-pid-verdict",
+  "category": "nightly-discipline",
+  "title": "并发隔离判定缺进程同一性检查、缺失标记文件直接崩溃（双文件）",
+  "origin": {
+    "commit": "4cf3e291819e171bff50824185484053ede11c3f",
+    "summary": "PR#9 review: defensive concurrency marker reads + distinctPids in verdict"
+  },
+  "prompt": "工作区是夜间演练并发阶段的最小实现，含两个文件：drill.mjs 的 readMarker(path) 读取 worker 的标记文件；verdict.mjs 的 concurrencyVerdict(run) 判定两个并发 worker 的隔离是否成立（run 含 aOk/bOk 两 worker 是否正常退出、markerA/markerB 标记文本、pidA/pidB 进程号）。存在两个缺陷：\n1. drill.mjs：worker 崩溃没写标记文件时 readMarker 直接抛异常，整个演练在产出报告前崩溃——缺失文件必须返回 undefined（演练要带着诊断走完）；\n2. verdict.mjs：判定只看退出码与标记文本，不看两个 worker 是否真是不同进程——pidA === pidB（同一进程跑了两遍）时根本没发生并发，必须判 false。\n请同时修复两个文件，要求：\n1. readMarker：文件存在返回去除首尾空白的文本，缺失返回 undefined，不得抛错；\n2. concurrencyVerdict：ok 当且仅当 双 worker 正常 && 标记分别为 ALPHA-MARKER/BETA-MARKER && pidA !== pidB；detail 保留诊断字段；\n3. 不引入任何外部依赖；保持两个文件的导出名与签名不变，允许修改 drill.mjs 与 verdict.mjs。",
+  "allowedFiles": ["drill.mjs", "verdict.mjs"]
+}

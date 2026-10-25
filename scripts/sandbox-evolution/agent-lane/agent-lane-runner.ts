@@ -337,10 +337,14 @@ async function main(): Promise<number> {
           ? [{ content: '已审阅，无需修改。', promptTokens: 9, completionTokens: 3 }]
           : []
         if (arm === 'candidate') {
-          const entryFile = task.allowedFiles[0]!
-          const referenceContent = readFileSync(join(task.referenceDir, entryFile), 'utf8')
+          // Multi-file tasks: ONE bash command carrying every allowed file's
+          // reference content (concatenated heredocs).
+          let fixCommand = ''
+          for (const allowedFile of task.allowedFiles) {
+            fixCommand += heredocWriteCommand(join(workspace, allowedFile), readFileSync(join(task.referenceDir, allowedFile), 'utf8'))
+          }
           script.push(
-            { content: '', callFirstTool: { firstStringArg: heredocWriteCommand(join(workspace, entryFile), referenceContent) }, promptTokens: 11, completionTokens: 5 },
+            { content: '', callFirstTool: { firstStringArg: fixCommand }, promptTokens: 11, completionTokens: 5 },
             { content: '已按要求修改完成。', promptTokens: 40, completionTokens: 3 },
           )
         }

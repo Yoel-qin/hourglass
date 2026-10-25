@@ -1,0 +1,12 @@
+{
+  "schema": "hourglass-agent-task/1",
+  "id": "refused-slot-release",
+  "category": "broker-accounting",
+  "title": "连接被拒的调用烧掉并发槽位后不归还",
+  "origin": {
+    "commit": "c926ba0192a8a8cd67a1112db1a01ddee316977b",
+    "summary": "review round 5: recover in-flight slots on refused connects"
+  },
+  "prompt": "工作区中的 broker-core.mjs 是调用转发的并发记账核心：每个转发调用从发起到完全结算（成功、上游连接失败、客户端中止）占用一个并发槽位，超过 maxConcurrentCalls 的调用必须被拒绝（429）。缺陷：槽位只在成功路径归还——上游连接失败（opener 抛错）的路径从不归还槽位，几次连接失败之后网关就把自己的并发额度烧光，后续健康调用被误拒。请修复该文件，要求：\n1. 任一结算路径（成功或失败）都必须归还槽位；被拒连接连续发生 N 次后，同一网关上的健康调用仍必须被放行（不得 429）；\n2. 并发上限本身必须仍然生效：一个慢调用在途时，同网关的第二个调用必须是 429；\n3. 混合流量（成功+失败）全部结算后 inflight 必须归零；\n4. 事件日志形状不变（refused 事件含 status 502 与 reason 字符串）；\n5. 不引入任何外部依赖；保持导出名与签名不变，只允许修改 broker-core.mjs。",
+  "allowedFiles": ["broker-core.mjs"]
+}
