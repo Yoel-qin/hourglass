@@ -89,3 +89,46 @@ v2 的试炼信号是**合成基准上的命令覆盖**（directive-coverage ada
 - 试炼信号从"机制正确性证明"升级为"真实任务表现证据"，skill 进化闭环；
 - 新增密钥管理面（Host 侧）与真实费用；PR/日常纪律不变；
 - 验收报告需追加 MVP-B/M1 章节（同 v3.1 §17 纪律）。
+
+## 附表 A：真实 lane 首跑基线与阈值重校记录（2026-10-25，ADR-002 三原则）
+
+数据来源：本地 Docker 特权容器，模型 `deepseek-flash`（ADR 选定
+DeepSeek-V4.1-Flash 的 **API id**；显示名直接传参会被端点 400 拒绝——
+首跑实测发现，runner 默认值已改为 API id），上游
+`https://api.deepseek.com/anthropic`（Messages 协议，Bearer 凭据经 broker
+注入，密钥全程 host 侧）。两次真实 run：
+
+- 子集首跑（z-from-ci 单任务）：双臂 judge 双过；baseline 8 调用 /
+  23,825 token / 51.7s，candidate（冒烟技能）5 调用 / 6,086 token /
+  21.4s。
+- 全量基线（6 任务 × 双臂）：12/12 臂全部 completed 且 judge 全过——
+  **baseline 成功率 100%（天花板）**；97 调用 / 150,793 token（其中
+  17 个用量未知调用按 abortedCallTokenCharge=4096 fail-closed 计价，
+  占报告 token 的 46%）/ 墙钟 478s；未触任何硬上限；recorder 零命中。
+
+逐任务（baseline→candidate 调用数/token）：lock 6/10.3K→6/2.6K、
+nightly 5/7.1K→4/2.4K、sse 5/4.1K→5/5.5K、epipe 12/18.2K→13/26.9K、
+tag 5/5.9K→4/2.2K、z 27/55.0K→5/10.8K。
+
+### 重校结论（按 ADR-002：安全优先 / 阈值须有实测依据 / 变更留痕）
+
+1. **agent lane 的成功率 golden 维持未启用**。六任务对 deepseek-flash
+   的基线成功率为 100% 天花板——成功率维度零区分度，MVP-A 的
+   2pp/8 样本严格改进阈值在 agent lane 上结构性不可满足。晋级判定
+   继续走 shell lane 旧 golden；agent lane 保持**数据采集模式**
+   （campaign 惯常 `inconclusive`，policy 字段持续标 provisional）。
+2. **方差远超合成 adapter**（ADR 预判被实测确认）：同一任务同一模型
+   无技能两跑，z-from-ci baseline 8→27 调用、23.8K→55.0K token、
+   51.7s→176.5s。任何成本/延迟维度的阈值在「每任务 ≥8 配对样本」
+   之前不可声称；当前数据仅作基线首录。
+3. **计量诚实性记录**：17/97（17.5%）调用以未知用量结算（疑似每臂
+   末次调用的客户端收尾断连），fail-closed 计价覆盖了缺口；报告已
+   携带逐调用 records 供审计。
+4. **启用条件（后续任一满足后重开本附表）**：①任务集加入对
+   deepseek-flash 有区分度的更难任务（成功率维度脱离天花板）；
+   ②按 ≥8 配对样本/任务的成本分布重算成本维度阈值；③维持采集模式
+   直至上述数据就绪。在此之前不得从 agent lane 产生晋级决策。
+
+首跑证据：`reports/runs/agent-lane-real-20261025T103415Z`（子集）与
+`agent-lane-real-20261025T103754Z`（全量）（本地卷，未入库——报告含
+逐调用记录与模型路由，按纪律不入 git）。

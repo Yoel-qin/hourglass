@@ -171,11 +171,12 @@ campaign（策略标 `provisional`，待真实基线重校后写 ADR-004 附表�
 
 **硬上限**（fail-closed，env 可调但坏值拒跑）：默认 2,000,000 token /
 30 分钟 / 每臂 ≤8 轮（`HOURGLASS_AGENT_LANE_MAX_TOKENS` /
-`_WALL_CLOCK_MS` / `_MAX_TURNS`；模型与上游
-`HOURGLASS_AGENT_LANE_MODEL`（默认 `DeepSeek-V4.1-Flash`）/
-`HOURGLASS_AGENT_LANE_UPSTREAM`（默认
-`https://api.deepseek.com/anthropic`））。超限 broker 拒绝后续请求 →
-任务 `blocked`，不静默继续。
+`_WALL_CLOCK_MS` / `_MAX_TURNS`）。模型与上游：
+`HOURGLASS_AGENT_LANE_MODEL` 默认 **`deepseek-flash`**（ADR 选定
+DeepSeek-V4.1-Flash 的 **API id**——显示名直接传参会被告点 400 拒绝，
+首跑实测）；`HOURGLASS_AGENT_LANE_UPSTREAM` 默认
+`https://api.deepseek.com/anthropic`（Messages 协议，Bearer 经 broker
+注入）。超限 broker 拒绝后续请求 → 任务 `blocked`，不静默继续。
 
 ### 9.3 故障速查（agent lane）
 
