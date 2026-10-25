@@ -141,13 +141,15 @@ docker run --rm --privileged -v "$(pwd -W)/reports:/opt/reports" \
 **省量次序**（ADR-004 已决纪律）：
 
 ```bash
-# ① dry-run：只打印计划臂数与调用上界，不 spawn（无需密钥）
-docker run --rm --privileged hourglass-test \
-  --entrypoint node --experimental-strip-types \
+# ① dry-run：只打印计划臂数与调用上界，不 spawn（无需密钥）。
+#    docker 自身选项（--entrypoint）必须在镜像名之前，其后才是容器命令
+docker run --rm --privileged --entrypoint node hourglass-test \
+  --experimental-strip-types \
   /opt/dsh/packages/hourglass/evolution-runner/agent-lane/agent-lane-runner.ts \
   --lane=real --dry-run
 
-# ② 最小子集首跑：单任务双臂（≤16 调用上界；AGENT_LANE_TASKS 传子集）
+# ② 最小子集首跑：单任务双臂（≤16 调用上界；AGENT_LANE_TASKS 为逗号
+#    分隔的任务 id 子集）
 docker run --rm --privileged \
   --env-file .secrets/deepseek.env \
   -e HOURGLASS_AGENT_LANE_REAL=1 \

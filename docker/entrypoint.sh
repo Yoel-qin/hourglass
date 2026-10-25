@@ -108,14 +108,16 @@ do_agent_lane_real() {
   # optionally narrows the run to a minimal task subset first (token-saving
   # order: mock -> minimal subset -> full nightly).
   log "running agent-lane REAL trial lane (explicit opt-in enforced by the runner)"
-  local tasks_arg=""
+  local -a tasks_args=()
   if [ -n "${AGENT_LANE_TASKS:-}" ]; then
-    tasks_arg="--tasks=${AGENT_LANE_TASKS}"
+    # Comma-separated task ids; array expansion keeps the value one argument
+    # even if it ever carries whitespace (PR #19 review finding).
+    tasks_args=(--tasks="${AGENT_LANE_TASKS}")
     log "agent-lane real subset: ${AGENT_LANE_TASKS}"
   fi
   set +e
   node --experimental-strip-types "$DSH/packages/hourglass/evolution-runner/agent-lane/agent-lane-runner.ts" \
-    --lane=real ${tasks_arg} \
+    --lane=real "${tasks_args[@]}" \
     --out="$REPORTS/runs/agent-lane-real-$(date -u +%Y%m%dT%H%M%SZ)" 2>&1 | tee "$REPORTS/runs/agent-lane-real-latest.txt"
   local status=${PIPESTATUS[0]}
   set -e
