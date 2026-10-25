@@ -18,12 +18,14 @@ interface ParsedFrontmatter {
 }
 
 function parseSkillFile(text: string): ParsedFrontmatter | undefined {
-  const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text)
+  // CR-tolerant: candidate skill files may be checked out with CRLF on
+  // Windows authoring machines (*.md is outside the LF gitattributes set).
+  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text)
   if (match === null) return undefined
-  const name = /^name:\s*(.+)$/m.exec(match[1])?.[1]?.trim()
-  const description = /^description:\s*(.+)$/m.exec(match[1])?.[1]?.trim()
+  const name = /^name:\s*(.+?)\s*$/m.exec(match[1])?.[1]
+  const description = /^description:\s*(.+?)\s*$/m.exec(match[1])?.[1]
   if (name === undefined || name === '' || description === undefined) return undefined
-  return { name, description, body: match[2] }
+  return { name, description, body: match[2].replace(/\r\n/g, '\n') }
 }
 
 export function apply(ctx: Context): void {

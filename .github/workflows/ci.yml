@@ -72,6 +72,9 @@ jobs:
       - name: Agent carrier probe (mock LLM, P1-P4 evidence)
         run: docker run --rm --privileged hourglass-test hourglass-entrypoint agent-carrier-smoke
 
+      - name: Agent lane mock trial (paired arms, hidden judges, zero real model)
+        run: docker run --rm --privileged hourglass-test hourglass-entrypoint agent-lane-smoke
+
       - name: Evolution gate pipeline (improved candidate must pass)
         run: >-
           docker run --rm --privileged hourglass-test

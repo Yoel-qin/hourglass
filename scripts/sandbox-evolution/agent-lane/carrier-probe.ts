@@ -23,20 +23,12 @@
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { networkInterfaces } from 'node:os'
-import { randomUUID } from 'node:crypto'
-// DSH imports resolve to the workspace's BUILT lib (strip-only node cannot
-// parse the parameter properties in DSH sources — the session-1 lesson).
-import { Context, Service } from '@deepseek-ai/cordis'
-import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
-import SubagentRuntime from '@deepseek-ai/dsh-subagent'
-import * as SdkProvider from '@deepseek-ai/dsh-subagent-dsh-sdk'
-import { createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
-// Surface the provider's ctx.logger.warn diagnostics (child failure detail).
-import LoggerConsole from '@deepseek-ai/cordis-plugin-logger-console'
+// The child-launch recipe (ctx stack, profile patch application, PID
+// evidence) lives in dsh-child.ts, shared with the agent-lane runner.
+import { runDshChild } from './dsh-child.ts'
 import { CandidateStore } from '@hourglass/evolution-trial/src/candidate-store.ts'
 import { startLlmBroker } from '@hourglass/evolution-trial/src/llm-broker.ts'
 import { startMockLlmServer } from '@hourglass/evolution-trial/src/mock-llm-server.ts'
@@ -45,7 +37,6 @@ import { startNetRecorder } from './net-recorder.ts'
 
 const SKILL_MARKER = 'HOURGLASS_AGENT_CARRIER_SKILL_MARKER_9f3a'
 const CANARY_TEXT = 'DSH_SYNTHETIC_CANARY_AGENT_7c21'
-const BROKER_DUMMY_KEY = 'hourglass-broker-dummy-not-a-secret'
 const BROKER_UPSTREAM_KEY = 'carrier-broker-upstream-key'
 const MODEL_ID = 'deepseek-flash'
 
@@ -69,24 +60,6 @@ function containerIp(): string {
     }
   }
   return '127.0.0.1'
-}
-
-function childPidsReferencing(homePath: string): number[] {
-  const pids: number[] = []
-  for (const entry of readdirSync('/proc')) {
-    if (!/^[0-9]+$/.test(entry)) continue
-    const pid = Number(entry)
-    if (pid === process.pid) continue
-    try {
-      // DSH_HOME travels in the environment, not argv; same-container root
-      // can read /proc/PID/environ.
-      const environ = readFileSync(join('/proc', entry, 'environ'), 'utf8')
-      if (environ.includes(`DSH_HOME=${homePath}`)) pids.push(pid)
-    } catch {
-      // process exited between readdir and read — not evidence
-    }
-  }
-  return pids
 }
 
 function countFds(): number {
@@ -229,115 +202,24 @@ async function main(): Promise<void> {
           { content: 'carrier-probe-complete', promptTokens: 40, completionTokens: 3 },
         ])
 
-      const ctx = new Context()
-      if (process.env.CARRIER_VERBOSE === '1') await ctx.plugin(LoggerConsole)
-      let activation: { result: Promise<{ stopReason: string; diagnostic?: string }>; dispose(): Promise<void> } | undefined
-      const poll = setInterval(() => {
-        for (const pid of childPidsReferencing(dshHome)) allChildPids.add(pid)
-      }, 100)
-      try {
-        await ctx.plugin(SessionStore)
-        await ctx.plugin(AgentRegistry)
-        // Minimal workingDirectory service (the same surface the DSH
-        // orchestration fixtures use) — the full runtime tree is not needed
-        // to drive an out-of-process SDK child.
-        class ProbeWorkingDirectory extends Service {
-          constructor(ctx: Context) {
-            super(ctx, 'workingDirectory')
-          }
-          get(session: { header?: { cwd?: string } }): string {
-            return session?.header?.cwd ?? process.cwd()
-          }
-          async ensure(agent: { session: { header?: { cwd?: string } } }, signal?: AbortSignal): Promise<string> {
-            signal?.throwIfAborted()
-            return this.get(agent.session)
-          }
-          async set(agent: { session: { header?: { cwd?: string } } }, path: string, signal?: AbortSignal): Promise<string> {
-            signal?.throwIfAborted()
-            return resolve(this.get(agent.session), path)
-          }
-        }
-        if (ctx.get('workingDirectory') === undefined) await ctx.plugin(ProbeWorkingDirectory)
-        await ctx.plugin(SubagentRuntime)
-        await ctx.plugin(SdkProvider, {
-          providerName: 'dsh-sdk',
-          profile: 'sdk',
-          patches: [patchPath],
-          dshHome,
-          // stderr lens: a dshBin wrapper that tees the child's stderr into
-          // the probe output (composition warnings + runtime errors — the
-          // provider's safe diagnostics hide them).
-          dshBin: join(dirname(fileURLToPath(import.meta.url)), 'stderr-wrap.mjs'),
-          provider: 'deepseek-official',
-          model: MODEL_ID,
-          env: {
-            // The apiKeyEnv patch override does not reach the volatile
-            // credential-ref field, so the child's DeepSeek adapter reads its
-            // DEFAULT ambient ref: satisfy it with the dummy — the host-side
-            // broker strips client credentials and injects the real upstream
-            // key (ADR-004 D2 boundary; the dummy is not a secret).
-            DEEPSEEK_API_KEY: BROKER_DUMMY_KEY,
-            DSH_TELEMETRY_DISABLED: '1',
-            CARRIER_CHILD_STDERR: join(root, `child-stderr-${cycle}.log`),
-            CARRIER_REAL_DSH_ENTRY: '/opt/dsh/apps/cli/lib/bin.js',
-            CARRIER_CANDIDATE_SKILL: join(skillDir, 'SKILL.md'),
-            CARRIER_SKILL_DUMP: join(root, 'skill-lens.log'),
-          },
-          shutdownTimeoutMs: 2000,
-          disposeEofGraceMs: 3000,
-          disposeGraceMs: 3000,
-        })
-        const session = ctx.sessions.create(SessionId(randomUUID()), { meta: { cwd: workspace } })
-        const inbox = createInboxStub()
-        const parent: Agent = {
-          id: session.id,
-          session,
-          ctx,
-          options: {},
-          status: 'idle',
-          inbox,
-          send: (message, target) => {
-            inbox.append(target, message)
-          },
-          followup: message => {
-            inbox.append('next-turn', message)
-          },
-          steer: message => {
-            inbox.append('next-step', message)
-          },
-          inject: message => {
-            inbox.append('next-step', message)
-          },
-          cancel: (_cause, options) => {
-            if (options?.keepInbox !== true) inbox.clear()
-          },
-          whenIdle: () => Promise.resolve(),
-          runMaintenance: task => task(new AbortController().signal),
-        }
-        await ctx.agents.register(parent)
-        const controller = new AbortController()
-        activation = await ctx.subagents.startActivation({
-          provider: 'dsh-sdk',
-          label: `carrier-probe-${cycle}`,
-          request: {
-            prompt: [{ type: 'text', text: 'Carrier probe task: run the probe your loaded skill describes.' }],
-            parent,
-            cwd: workspace,
-          },
-          signal: controller.signal,
-          delivery: 'caller',
-        })
-        const result = await activation.result
-        if (result.stopReason !== 'completed') {
-          blocked.push(`cycle ${cycle}: child stopReason=${result.stopReason}${result.diagnostic === undefined ? '' : ` (${result.diagnostic})`}`)
-        }
-      } catch (error) {
-        console.error('[agent-carrier] cycle error:', error)
-        blocked.push(`cycle ${cycle}: ${error instanceof Error ? error.message : String(error)}`)
-      } finally {
-        clearInterval(poll)
-        if (activation !== undefined) await activation.dispose().catch(() => undefined)
-        await ctx.fiber.dispose().catch(() => undefined)
+      const outcome = await runDshChild({
+        label: `carrier-probe-${cycle}`,
+        promptText: 'Carrier probe task: run the probe your loaded skill describes.',
+        workspace,
+        dshHome,
+        patchPath,
+        stderrLog: join(root, `child-stderr-${cycle}.log`),
+        modelId: MODEL_ID,
+        candidateSkillPath: join(skillDir, 'SKILL.md'),
+        skillDumpLog: join(root, 'skill-lens.log'),
+        timeoutMs: 120_000,
+        verbose: process.env.CARRIER_VERBOSE === '1',
+      })
+      for (const pid of outcome.childPids) allChildPids.add(pid)
+      if (outcome.stopReason !== 'completed') {
+        blocked.push(`cycle ${cycle}: child stopReason=${outcome.stopReason}` +
+          `${outcome.diagnostic === undefined ? '' : ` (${outcome.diagnostic})`}` +
+          `${outcome.error === undefined ? '' : ` error=${outcome.error}`}`)
       }
       cycleResults.push({ homeEntries: dirEntryCount(dshHome) })
     }
