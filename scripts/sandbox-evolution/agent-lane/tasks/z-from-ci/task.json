@@ -1,0 +1,12 @@
+{
+  "schema": "hourglass-agent-task/1",
+  "id": "z-from-ci",
+  "category": "evaluation-statistics",
+  "title": "置信区间下界未使用调用方给定的置信度",
+  "origin": {
+    "commit": "74d653ec882831174a07258da7c740a27e111399",
+    "summary": "PR#11 review: derive z from the locked ciConfidence (drop hardcoded Z_95)"
+  },
+  "prompt": "工作区中的 ci-gate.mjs 实现配对差异门禁的置信区间下界计算。缺陷：无论调用方传入的 confidence 是多少，实现都固定使用 95% 置信度的大样本 z 值（Z_95 常量），其他置信度级别的门禁判定因此失真。请修复该文件，要求：\n1. ciLowerBoundPct(differences, confidence) 的 z 值必须由 confidence 参数推导（双侧正态分位数，与标准统计表一致到至少 6 位小数）；\n2. confidence 不在 (0,1) 开区间（含 NaN）时必须抛出异常；\n3. 不引入任何外部依赖，纯函数实现；\n4. 保持现有导出名与函数签名不变，只允许修改 ci-gate.mjs。",
+  "allowedFiles": ["ci-gate.mjs"]
+}
