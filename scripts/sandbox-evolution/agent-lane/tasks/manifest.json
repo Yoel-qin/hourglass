@@ -1,6 +1,6 @@
 {
   "schema": "hourglass-agent-benchmark/1",
-  "lockedAt": "2026-10-25T05:03:15.980Z",
+  "lockedAt": "2026-10-25T05:28:55.742Z",
   "lockReason": "ADR-004 D1-2 real task set: every task freezes a real hourglass development-history defect (fixture = defect site, reference = the real fix, judge = the real regression assertions). Content-addressed with LF-normalized sha256; frozen by agent-lane.lock.json.",
   "tasks": [
     {
@@ -29,7 +29,7 @@
       "files": {
         "fixture/usage-from-sse.mjs": "ee5fe134660f3aff3885857d2d2c14d999cae8cececd4ceccb2960221d2619cb",
         "judge/judge.mjs": "c633c1f9fec22a91e8d975b00346d96d25eac38c8e89228b1509f6583fd70066",
-        "reference/usage-from-sse.mjs": "225e374541f02a49cd04cf60fd0e80411321a38845639129f528b24f43b56caa",
+        "reference/usage-from-sse.mjs": "307004519c17c89992a175705f0b033c354f79631be94f5870145a75d4b5f2ee",
         "task.json": "fcb40ae83841cc4492e83cf1e8c7089de2e0d3fc10a351ac722f107e14831029"
       }
     },
@@ -38,7 +38,7 @@
       "category": "subprocess-lifecycle",
       "files": {
         "fixture/trial-run.mjs": "ae93923456b42ce89f5f6ec0a59706f753d424da545bbadefe5e211d3d97a3e8",
-        "judge/judge.mjs": "2d95304ac807d40c26a32faf547ddadc13dbd4c5275fd1f8583720c13b14910b",
+        "judge/judge.mjs": "196e77ea58ce387032c99a3870780b870f69b3ca4b741823b89fb65ac73b964c",
         "reference/trial-run.mjs": "f631788d67952becc54c71fd6423bdb5ffa73b194fc1cc28fec17fb925d158fb",
         "task.json": "7f11d154cda1d536bcf2836d6f2ec17df0017cdd4a6a4ef7bd89e1df9ec2003a"
       }

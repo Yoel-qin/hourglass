@@ -21,9 +21,12 @@ export function extractUsageFromJson(text) {
 
 export function extractUsageFromSse(bodyText) {
   let found
-  for (const line of bodyText.split('\n')) {
-    // CR-tolerant: CRLF-terminated frames are valid SSE (non-Node gateways).
-    const match = /^data: (.+)\r?$/.exec(line)
+  // CR-tolerant: CRLF-terminated frames are valid SSE (non-Node gateways).
+  // Splitting on the optional CR keeps the [DONE] sentinel comparison exact
+  // for both line endings instead of relying on JSON.parse tolerating the
+  // trailing CR.
+  for (const line of bodyText.split(/\r?\n/)) {
+    const match = /^data: (.*)$/.exec(line)
     if (match === null || match[1] === '[DONE]') continue
     const candidate = extractUsageFromJson(match[1])
     if (candidate !== undefined) found = candidate

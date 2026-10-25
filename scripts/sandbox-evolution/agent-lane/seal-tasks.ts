@@ -30,14 +30,15 @@ function listTaskFiles(taskDir: string): string[] {
 function main(): void {
   const taskDirs = readdirSync(TASKS_DIR, { withFileTypes: true })
     .filter(entry => entry.isDirectory() && entry.name !== 'node_modules')
-    .map(entry => entry.name)
-    .filter(name => {
+    .map(entry => {
+      // A task directory without a parseable task.json must ABORT the seal,
+      // not be silently dropped from the benchmark (PR #17 review).
       try {
-        JSON.parse(readFileSync(join(TASKS_DIR, name, 'task.json'), 'utf8')) as unknown
-        return true
-      } catch {
-        return false
+        JSON.parse(readFileSync(join(TASKS_DIR, entry.name, 'task.json'), 'utf8')) as unknown
+      } catch (error) {
+        throw new Error(`task directory without a parseable task.json: ${entry.name}: ${String(error)}`)
       }
+      return entry.name
     })
     .sort()
   if (taskDirs.length === 0) throw new Error('no task directories with a parseable task.json found')

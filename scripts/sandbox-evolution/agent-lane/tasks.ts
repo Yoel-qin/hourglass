@@ -20,7 +20,7 @@
 
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
 export interface AgentTask {
@@ -73,6 +73,26 @@ export function normalizedSha256(text: string): string {
   return createHash('sha256').update(text.replace(/\r\n/g, '\n'), 'utf8').digest('hex')
 }
 
+/**
+ * Every file under dir as POSIX-style relative paths (the manifest's key
+ * format). Used for set equality: a file PRESENT on disk but ABSENT from
+ * the manifest/lock must abort the lane — otherwise an unlisted fixture
+ * file would reach the child outside the content-addressed freeze
+ * (PR #17 review finding).
+ */
+function walkFiles(dir: string): string[] {
+  const files: string[] = []
+  const walk = (relative: string): void => {
+    for (const entry of readdirSync(join(dir, relative), { withFileTypes: true })) {
+      const child = relative === '' ? entry.name : `${relative}/${entry.name}`
+      if (entry.isDirectory()) walk(child)
+      else files.push(child)
+    }
+  }
+  walk('')
+  return files.sort()
+}
+
 function assertTaskJsonShape(parsed: unknown, dir: string): asserts parsed is {
   id: string; category: string; title: string; prompt: string; allowedFiles: string[]
 } {
@@ -120,6 +140,11 @@ export function loadAgentTasks(tasksDir: string): LoadedAgentTasks {
       if (actual !== expected) throw new Error(`agent-task-hash-mismatch:${entry.id}:${relative}`)
       verifiedFileCount += 1
     }
+    // Set equality with the freeze: additions to a task directory are as
+    // much drift as mutations (materializeTaskWorkspace copies the whole
+    // fixture tree, so an unlisted file would reach the child unhashed).
+    const unlisted = walkFiles(dir).filter(relative => entry.files[relative] === undefined)
+    if (unlisted.length > 0) throw new Error(`agent-task-unlisted-file:${entry.id}:${unlisted.join(',')}`)
     const taskJsonPath = join(dir, 'task.json')
     if (entry.files['task.json'] === undefined || entry.files['judge/judge.mjs'] === undefined) {
       throw new Error(`agent-task-missing-core-files:${entry.id}`)
@@ -173,6 +198,13 @@ export function verifyAgentLaneLock(lockPath: string): { ok: boolean; errors: re
     }
     if (normalizedSha256(readFileSync(target, 'utf8')) !== expected) {
       errors.push(`agent-lane-locked-hash-mismatch:${relative}`)
+    }
+  }
+  // Set equality again: every file under agent-lane/tasks/ must be locked,
+  // so nothing can be added to the task set outside the freeze.
+  for (const onDisk of walkFiles(join(baseDir, 'agent-lane', 'tasks'))) {
+    if (parsed.files[`agent-lane/tasks/${onDisk}`] === undefined) {
+      errors.push(`agent-lane-unlocked-file:${onDisk}`)
     }
   }
   return { ok: errors.length === 0, errors, lockSha256 }
